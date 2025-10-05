@@ -62,3 +62,23 @@ Ran the training script a few times to make sure it actually works and the accur
 ### What I learned
 
 The val_accuracy is more important than training accuracy because that's on data the model hasn't seen. If training accuracy is way higher than val accuracy that means it's memorising rather than actually learning (overfitting). Mine were pretty close so I think it's OK.
+---
+
+## Phase 4 — Save and Load Trained Models
+
+### What I tested
+
+Made sure models save properly and load back with the same predictions.
+
+### Tests
+
+| # | What I tried | Type | Expected | Actual | Pass? |
+|---|---|---|---|---|---|
+| 1 | Save model after training | Normal | .keras file appears in artifacts/ | File created, 1.2MB | Yes |
+| 2 | Load saved model and predict | Normal | Same predictions as before saving | Predictions matched exactly | Yes |
+| 3 | Try loading a model that doesn't exist | Erroneous | Should get an error | Got FileNotFoundError — makes sense | Yes |
+| 4 | Save two models, load each separately | Boundary | Both files exist and load correctly | Both loaded fine, predictions different because different training runs | Yes |
+
+### Bugs found
+
+**Model file path was hardcoded.** I had the path as just `model.keras` which saved it in the project root. Moved it to `artifacts/model.keras` and added the artifacts folder to the project. Not really a bug but it was messy having model files in the root directory.

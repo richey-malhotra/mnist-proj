@@ -1,151 +1,80 @@
-# Phase 3: Train First MLP Model
+# Phase 4: Save and Load Trained Models
 
 ## What Changed
 
-- Created `models.py` with MLP architecture
-- Added data normalisation (0-255 → 0-1 range)
-- Added the training loop with validation
-- Model summary shows 101,770 trainable parameters
-- Training achieves ~97% accuracy in 3 epochs
+- Added `save_model()` and `load_model()` functions to models.py
+- Created `artifacts/` directory for model files
+- Uses `.keras` format (single file, simpler than the older SavedModel way that makes a whole folder)
+- Added a yes/no prompt in app.py so you can choose to load the saved model or retrain
 
- Phase 2 loaded the data. Now I'm building and training a neural network on it.
+## Why This Was Needed
 
-## Understanding the MLP
+Phase 3's model only existed in memory. All 101,770 trained parameters were lost as soon as the script finished, meaning a 2-minute retrain every time. That gets old fast when you're testing predictions.
 
-MLP stands for Multi-Layer Perceptron. Had to Google it because I'd heard the term but wasn't clear on the details. It's the simplest kind of neural network. It's layers of neurons connected together, each taking inputs, multiplying by weights, adding up, and passing through an activation function. "Perceptron" is an old term for a single neuron, "Multi-Layer" means you stack them.
+## Save Format
 
-The architecture lives in `models.py` (separate file to keep things organised):
+Googled "keras save model" and found two options: SavedModel (creates a whole directory with multiple files) and `.keras` (single file, newer). Went with `.keras` because it's simpler - one file instead of a folder structure. It stores everything: architecture, weights, optimiser state, and compilation settings. Once it's loaded you can just use it straight away, don't need to recompile or anything.
 
-```python
-model = keras.Sequential([
-    layers.Flatten(input_shape=(28, 28)),  # 28×28 → 784
-    layers.Dense(128, activation='relu'),   # Hidden layer
-    layers.Dense(10, activation='softmax')  # Output (10 digits)
-])
-```
+The saved file is about 416KB, which seemed surprisingly small for 101k parameters plus all the architecture info.
 
-- **Flatten**: Takes the 28×28 grid and turns it into one long list of 784 numbers. Neural networks need 1D input.
-- **Dense(128, relu)**: Hidden layer. 128 neurons was a tutorial default - could be 64 or 256, not sure why 128 specifically. ReLU means "set negative values to zero".
-- **Dense(10, softmax)**: Output layer. 10 neurons for 10 digits. Softmax turns outputs into probabilities that add up to 1.
+## How I Set It Up
 
-For compilation I used Adam optimiser (seems to be the standard choice). Loss function is sparse categorical crossentropy, which measures how wrong predictions are. The 'sparse' part is because labels are integers not one-hot. Also tracking accuracy as the metric. Don't fully understand the crossentropy maths yet but that's okay for now.
+Created an `artifacts/` directory to keep model files separate from code. Wasn't sure what to call the folder at first - thought about `models/` or `saved/` but a few TensorFlow tutorials I read called saved model files "artifacts", so I went with that. Used `os.makedirs('artifacts', exist_ok=True)` in the save function so it creates the folder if needed without erroring if it already exists. First time using this function. It's handy.
 
-## Parameter Count
+The save and load functions in models.py basically just call `model.save()` and `keras.models.load_model()` and that's it. See models.py for the actual code.
 
-The model has 101,770 parameters, which seemed like a lot for something "simple". Worked through the maths:
-- Flatten: 0 params (just reshaping)
-- Dense(128): 784 × 128 + 128 biases = 100,480
-- Dense(10): 128 × 10 + 10 biases = 1,290
-- **Total: 101,770**, which checks out!
+The interactive flow in app.py uses `os.path.exists()` to check if `artifacts/mnist_mlp.keras` exists, then `input().strip().lower()` to handle the user's yes/no choice. Had to add `.strip().lower()` because typing "Y" didn't match "y" initially - case sensitivity on user input is an easy thing to miss.
 
-## Normalisation
+## Things Worth Explaining
+
+### The `os.makedirs` Issue
 
 ```python
-x_train = x_train / 255.0
-x_test = x_test / 255.0
+def save_model(model, filepath):
+    os.makedirs('artifacts', exist_ok=True)
+    model.save(filepath)
 ```
 
-Divide all pixel values by 255 to get 0-1 instead of 0-255. Neural networks train better with smaller numbers. Converts to floats automatically.
+There's a slight problem here that I noticed: the function takes any filepath as an argument but always creates the `'artifacts'` folder specifically. If I ever saved to a different folder it would create `artifacts/` for no reason and then fail because the other folder doesn't exist. It's fine for now since I always save to `artifacts/`, but I should probably fix it at some point to use whatever directory is in the filepath.
 
-## Training
+### Relative Paths
 
 ```python
-history = model.fit(
-    x_train, y_train,
-    epochs=3, batch_size=32,
-    validation_data=(x_test, y_test),
-    verbose=1
-)
+model_path = 'artifacts/mnist_mlp.keras'
 ```
 
-- **Epochs**: 3 passes through the entire dataset
-- **Batch size**: 32 images at a time (60,000 / 32 = 1,875 batches per epoch)
-- **Validation**: Uses test set to check accuracy on unseen data
+This only works if you run `python app.py` from inside the phase folder. If you run it from somewhere else it'll look for `artifacts/` in the wrong place. There are ways to make paths relative to the script's location but I kept it simple for now.
 
-Results:
-- Epoch 1: ~92.5% train, ~95.8% validation
-- Epoch 2: ~96.6% train, ~97.0% validation
-- Epoch 3: ~97.7% train, ~97.2% validation
-
-Noticed validation accuracy is sometimes *higher* than training accuracy early on, which was unexpected. Looked it up and apparently it's normal in the first few epochs. The loss values (0.26, 0.11, 0.08) are harder to interpret than accuracy percentages: lower is better, but I'm not sure what scale they're on exactly.
-
-97% means 97 out of 100 digits correct. For a first neural network that feels pretty good. Apparently the best results people get on MNIST are like 99.8%, so there's room to improve, but that's not bad for a first try.
-
-## Problems I Hit
-
-Got a `ModuleNotFoundError` when trying to import from `models.py`. Both files need to be in the same directory and you have to run Python from that directory. Easy fix once I realised.
-
-Still a bit fuzzy on the difference between ReLU and Softmax beyond "ReLU for hidden layers, Softmax for output". The deeper maths can come later.
-
-## Decisions
-
-### Why Batch Size 32?
-
-I just went with 32 because basically every tutorial uses it. I think it's somewhere between fast training and good accuracy. Smaller batches take longer, bigger ones use more memory. 32 seemed like a safe default. I'll let users change it in the UI later so they can experiment.
-
-### Using the Test Set for Validation
-
-```python
-validation_data=(x_test, y_test)
-```
-
-I passed the test set as the validation data during training. I think technically you're supposed to keep the test set completely separate and use a different chunk of training data for validation. But for now this is simpler and it still shows whether the model is improving each epoch. Something to maybe fix properly later.
-
-### `sparse_categorical_crossentropy`
-
-Used `sparse_categorical_crossentropy` instead of `categorical_crossentropy` because my labels are just integers (0-9), not one-hot encoded vectors. Basically it saves me from having to convert 60,000 labels into arrays of mostly zeros. I think it does the same thing underneath, just saves you a step.
-
-### The History Object
-
-```python
-final_train_acc = history.history['accuracy'][-1]
-```
-
-`model.fit()` returns a history object that stores the metrics from each epoch. The `[-1]` grabs the last value. The double `.history` looks weird but that's just how Keras works - the object has an attribute called `history` which is a dictionary.
-
-## Project Files
+## File Structure
 
 ```
-gradio_phase3/
-├── app.py              # Main script with training loop (68 lines)
-├── models.py           # MLP architecture (33 lines)
-├── requirements.txt    # Dependencies (3 lines)
-├── README.md          # Technical documentation (this file)
-└── diary.md           # Development journal
+gradio_phase4/
+├── app.py             # Main script (97 lines, +29 from Phase 3)
+├── models.py          # Model architectures + save/load (50 lines, +17)
+├── requirements.txt   # Dependencies (unchanged)
+└── artifacts/
+    └── mnist_mlp.keras  # Saved model (~416KB)
 ```
 
-## Setup Instructions
+## Testing
 
-**1. Create virtual environment:**
-```bash
-python3 -m venv venv
-source venv/bin/activate
-```
+Tested both paths: save new model and load existing model. Accuracy matched (97.35% before save and after load), so the save/load is working properly. Loading is basically instant (~2 seconds) compared to ~2 minutes for retraining. Massive improvement.
 
-**2. Install dependencies:**
-```bash
-pip install -r requirements.txt
-```
+## How to Run
 
-**3. Run training:**
 ```bash
 python app.py
 ```
 
-**Expected output:**
-- Dataset loading with normalised values (0.0 to 1.0)
-- Model summary showing 101,770 parameters
-- Training progress for 3 epochs (~2 minutes total)
-- Final accuracy around 97%
+On first run: trains and saves the model. On later runs: offers to load or retrain.
 
-## Differences from Phase 2
+## Differences from Phase 3
 
-| Aspect | Phase 2 | Phase 3 |
+| Aspect | Phase 3 | Phase 4 |
 |--------|---------|---------|
-| **Files** | app.py only | app.py + models.py |
-| **Functionality** | Load data | Load, normalise, train model |
-| **Data preprocessing** | None | Normalisation (÷255) |
-| **Neural network** | None | 3-layer MLP |
-| **Training** | None | 3 epochs, ~2 minutes |
-| **Accuracy metric** | N/A | ~97% validation accuracy |
-| **Total code lines** | 33 | 101 (+68 lines) |
+| **Saving the model** | In memory only (lost on exit) | Saved to .keras file |
+| **Startup time (with model)** | ~2 minutes (retrain) | ~2 seconds (load) |
+| **File count** | 2 Python files | 2 Python files + artifacts/ |
+| **User interaction** | None | Load/retrain prompt |
+| **New functions** | None | `save_model()`, `load_model()` |
+| **New concepts** | None | `os.path.exists()`, `os.makedirs()`, `.strip().lower()` |
