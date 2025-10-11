@@ -1,10 +1,11 @@
 """
 Model architectures for MNIST digit classification.
-Phase 4: Added model save/load
+Phase 5: Added prediction
 """
 
 from tensorflow import keras
 from tensorflow.keras import layers
+import numpy as np
 import os
 
 def create_mlp():
@@ -36,3 +37,29 @@ def load_model(filepath):
     model = keras.models.load_model(filepath)
     print(f"Model loaded from {filepath}")
     return model
+
+def preprocess_image(image):
+    """Get image ready for the model — normalise and add batch dim."""
+    # Normalise to 0-1 range
+    image = image.astype('float32') / 255.0
+    
+    # Add batch dimension: (28, 28) → (1, 28, 28)
+    image = np.expand_dims(image, axis=0)
+    
+    return image
+
+def predict_digit(model, image):
+    """Run prediction on an image, return (digit, confidence)."""
+    # Preprocess image
+    processed = preprocess_image(image)
+    
+    # Get predictions (array of 10 probabilities)
+    prediction = model.predict(processed, verbose=0)
+    
+    # Find digit with highest probability
+    digit = int(prediction.argmax())
+    
+    # Get confidence for that digit
+    confidence = float(prediction[0][digit]) * 100
+    
+    return digit, confidence

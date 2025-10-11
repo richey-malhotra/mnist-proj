@@ -1,80 +1,83 @@
-# Phase 4: Save and Load Trained Models
+# Phase 5: Make Predictions
 
 ## What Changed
 
-- Added `save_model()` and `load_model()` functions to models.py
-- Created `artifacts/` directory for model files
-- Uses `.keras` format (single file, simpler than the older SavedModel way that makes a whole folder)
-- Added a yes/no prompt in app.py so you can choose to load the saved model or retrain
+- Added prediction functionality to classify digit images
+- Added the preprocessing stuff: normalising pixels and adding the batch dimension
+- Model loads from Phase 4's saved file and predicts with confidence scores
+- Tests on 5 random images each run to check it's actually working
 
-## Why This Was Needed
+Phase 4 saved the trained model to disk. This phase makes it actually *do* something. It takes an image and tells you what digit it is.
 
-Phase 3's model only existed in memory. All 101,770 trained parameters were lost as soon as the script finished, meaning a 2-minute retrain every time. That gets old fast when you're testing predictions.
+## Understanding the Output
 
-## Save Format
+First thing was figuring out what `model.predict()` actually returns. Turns out it gives you an array of 10 numbers, one probability for each digit 0-9, all adding up to 1.0. So if the fourth number (index 3) is 0.85, the model is 85% sure it's a 3. To get the predicted digit you use `argmax()` which finds the index of the highest value. Simple once you know the name, but took me a minute to remember it.
 
-Googled "keras save model" and found two options: SavedModel (creates a whole directory with multiple files) and `.keras` (single file, newer). Went with `.keras` because it's simpler - one file instead of a folder structure. It stores everything: architecture, weights, optimiser state, and compilation settings. Once it's loaded you can just use it straight away, don't need to recompile or anything.
+## Two Bugs, Back to Back
 
-The saved file is about 416KB, which seemed surprisingly small for 101k parameters plus all the architecture info.
+**Shape error.** Tried passing a single image to the model and got "expected 3 dimensions, got 2". The model was trained on batches shaped `(60000, 28, 28)` but my image was just `(28, 28)` - no batch dimension. Fix was `np.expand_dims(image, axis=0)` to reshape to `(1, 28, 28)`, a "batch of one". Found another way to do it with `np.newaxis` but expand_dims made more sense to me.
 
-## How I Set It Up
+**Normalisation mismatch.** Got predictions working but they were terrible - basically random guesses despite 97% accuracy. Spent a while confused before realising I was feeding raw pixels (0-255) but the model was trained on normalised data (0-1). Added `image.astype('float32') / 255.0` before predicting and everything worked. Frustrating because the model ran fine, it just silently gave garbage. Basically you have to preprocess the same way for training and prediction or you get rubbish results.
 
-Created an `artifacts/` directory to keep model files separate from code. Wasn't sure what to call the folder at first - thought about `models/` or `saved/` but a few TensorFlow tutorials I read called saved model files "artifacts", so I went with that. Used `os.makedirs('artifacts', exist_ok=True)` in the save function so it creates the folder if needed without erroring if it already exists. First time using this function. It's handy.
+## The predict_digit Function
 
-The save and load functions in models.py basically just call `model.save()` and `keras.models.load_model()` and that's it. See models.py for the actual code.
+Put it together in `models.py`: normalise, add batch dimension, predict, argmax, calculate confidence percentage. The `verbose=0` flag stops the progress bar per prediction, which was annoying when testing multiple images.
 
-The interactive flow in app.py uses `os.path.exists()` to check if `artifacts/mnist_mlp.keras` exists, then `input().strip().lower()` to handle the user's yes/no choice. Had to add `.strip().lower()` because typing "Y" didn't match "y" initially - case sensitivity on user input is an easy thing to miss.
+Confidence scores are interesting. Most come back at 99%+ but occasionally you get 85%, which usually means the digit is ambiguous. Doesn't mean it's actually right though. I saw one prediction at 97.8% that was completely wrong. Some digits just look similar.
 
-## Things Worth Explaining
-
-### The `os.makedirs` Issue
+## Why Two Datasets?
 
 ```python
-def save_model(model, filepath):
-    os.makedirs('artifacts', exist_ok=True)
-    model.save(filepath)
+# Raw (0-255) for predictions
+(x_train_raw, y_train), (x_test_raw, y_test) = mnist.load_data()
+# Normalised (0-1) for training
+(x_train, _), (x_test, _) = load_data()
 ```
 
-There's a slight problem here that I noticed: the function takes any filepath as an argument but always creates the `'artifacts'` folder specifically. If I ever saved to a different folder it would create `artifacts/` for no reason and then fail because the other folder doesn't exist. It's fine for now since I always save to `artifacts/`, but I should probably fix it at some point to use whatever directory is in the filepath.
-
-### Relative Paths
-
-```python
-model_path = 'artifacts/mnist_mlp.keras'
-```
-
-This only works if you run `python app.py` from inside the phase folder. If you run it from somewhere else it'll look for `artifacts/` in the wrong place. There are ways to make paths relative to the script's location but I kept it simple for now.
-
-## File Structure
-
-```
-gradio_phase4/
-├── app.py             # Main script (97 lines, +29 from Phase 3)
-├── models.py          # Model architectures + save/load (50 lines, +17)
-├── requirements.txt   # Dependencies (unchanged)
-└── artifacts/
-    └── mnist_mlp.keras  # Saved model (~416KB)
-```
+Model was trained on normalised data, so predictions need normalisation too. But I load raw data separately so `predict_digit()` handles preprocessing itself, which is what'll happen when someone actually uses the app later.
 
 ## Testing
 
-Tested both paths: save new model and load existing model. Accuracy matched (97.35% before save and after load), so the save/load is working properly. Loading is basically instant (~2 seconds) compared to ~2 minutes for retraining. Massive improvement.
+Loaded the saved model from Phase 4 and tested on 5 random images:
 
-## How to Run
-
-```bash
-python app.py
+```
+✓ Image 1: Predicted=7, Actual=7, Confidence=99.8%
+✗ Image 2: Predicted=5, Actual=3, Confidence=91.2%
+✓ Image 3: Predicted=2, Actual=2, Confidence=98.3%
 ```
 
-On first run: trains and saves the model. On later runs: offers to load or retrain.
+Got 4/5 correct - the wrong one was a 3 predicted as 5, which makes sense for scruffy handwriting. Overall test accuracy: 97.48%, matching training results.
 
-## Differences from Phase 3
+## Why I Did It This Way
 
-| Aspect | Phase 3 | Phase 4 |
+### Using `float32` Instead of `float64`
+
+```python
+image = image.astype('float32') / 255.0
+```
+
+I used `float32` because that's what TensorFlow uses internally. Using a different type might cause problems.
+
+### Converting NumPy Types to Python Types
+
+```python
+digit = int(prediction.argmax())
+confidence = float(prediction[0][digit]) * 100
+```
+
+`argmax()` returns a NumPy type, not a regular Python int. I found that other parts of the code sometimes didn't work with NumPy types, so wrapping them with `int()` and `float()` just makes sure they're normal Python numbers. Easy to forget but it avoids random errors later.
+
+### Why `prediction[0][digit]`
+
+`model.predict()` always gives back a 2D array even when you only give it one image. So `prediction[0]` gets the first (and only) result, and then `[digit]` gets the confidence for the predicted digit. It's because I added the batch dimension with `np.expand_dims` earlier, so the output shape matches the input shape.
+
+## Differences from Phase 4
+
+| Aspect | Phase 4 | Phase 5 |
 |--------|---------|---------|
-| **Saving the model** | In memory only (lost on exit) | Saved to .keras file |
-| **Startup time (with model)** | ~2 minutes (retrain) | ~2 seconds (load) |
-| **File count** | 2 Python files | 2 Python files + artifacts/ |
-| **User interaction** | None | Load/retrain prompt |
-| **New functions** | None | `save_model()`, `load_model()` |
-| **New concepts** | None | `os.path.exists()`, `os.makedirs()`, `.strip().lower()` |
+| **Functionality** | Train, save, load | + Make predictions |
+| **models.py** | 48 lines | 96 lines (+48) |
+| **app.py** | 97 lines | 156 lines (+59) |
+| **New functions** | None | `preprocess_image()`, `predict_digit()`, `test_predictions()` |
+| **Data loading** | Normalised only | Raw + normalised |
+| **Model output** | Accuracy % | Individual predictions with confidence |

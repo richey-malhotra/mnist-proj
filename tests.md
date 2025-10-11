@@ -82,3 +82,23 @@ Made sure models save properly and load back with the same predictions.
 ### Bugs found
 
 **Model file path was hardcoded.** I had the path as just `model.keras` which saved it in the project root. Moved it to `artifacts/model.keras` and added the artifacts folder to the project. Not really a bug but it was messy having model files in the root directory.
+---
+
+## Phase 5 — Make Predictions
+
+### What I tested
+
+Checked that predictions actually work on individual test images and that the model gets most of them right.
+
+### Tests
+
+| # | What I tried | Type | Expected | Actual | Pass? |
+|---|---|---|---|---|---|
+| 1 | Predict on test image index 0 | Normal | Correct digit | Predicted 7, actual was 7 | Yes |
+| 2 | Predict on 100 random test images | Normal | At least 95% correct | 97 out of 100 correct (97%) | Yes |
+| 3 | Predict on a very faint/low-contrast digit | Boundary | Might be less confident | Still correct but confidence was 0.72 instead of 0.99 | Yes |
+| 4 | Check prediction probabilities sum to 1.0 | Normal | All 10 probabilities add up to 1 | Sum was 0.9999998 — close enough (floating point) | Yes |
+
+### Bugs found
+
+**Nothing major this time.** The predictions worked as expected. I was surprised that the faint digit still got predicted correctly — the model handles bad input better than I expected. The 3 images it got wrong were genuinely hard to read even for me, so I'd say that's fair.

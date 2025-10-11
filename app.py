@@ -1,6 +1,6 @@
 """
 MNIST Digit Recognition Project
-Phase 4: Save and Load Models
+Phase 5: Make Predictions
 """
 
 import warnings
@@ -9,7 +9,7 @@ warnings.filterwarnings('ignore', message='urllib3 v2 only supports OpenSSL')
 
 from tensorflow.keras.datasets import mnist
 import numpy as np
-from models import create_mlp, save_model, load_model
+from models import create_mlp, save_model, load_model, predict_digit
 import os
 
 def load_data():
@@ -40,38 +40,70 @@ def train_model(model, x_train, y_train, x_test, y_test, epochs=3):
     
     return history
 
+def test_predictions(model, x_test_raw, y_test, num_samples=5):
+    """Try the model on some random test images and print results."""
+    print(f"\nTesting predictions on {num_samples} random images...")
+    print("-" * 50)
+    
+    # Pick random indices
+    indices = np.random.choice(len(x_test_raw), num_samples, replace=False)
+    
+    correct = 0
+    for i, idx in enumerate(indices):
+        # Get image and true label
+        image = x_test_raw[idx]
+        true_label = y_test[idx]
+        
+        # Make prediction
+        predicted_digit, confidence = predict_digit(model, image)
+        
+        # Check if correct
+        is_correct = predicted_digit == true_label
+        if is_correct:
+            correct += 1
+        
+        # Display result
+        status = "✓" if is_correct else "✗"
+        print(f"{status} Image {i+1}: Predicted={predicted_digit}, "
+              f"Actual={true_label}, Confidence={confidence:.1f}%")
+    
+    print("-" * 50)
+    print(f"Accuracy: {correct}/{num_samples} correct ({correct/num_samples*100:.0f}%)")
+
 def main():
-    """Train model and save it, or load existing model."""
+    """Train or load model, then test predictions."""
     print("Welcome to MNIST Digit Recognition!")
-    print("Phase 4: Model Persistence\n")
+    print("Phase 5: Making Predictions\n")
     
     model_path = 'artifacts/mnist_mlp.keras'
     
+    # Load raw data for predictions (need unnormalised images)
+    print("Loading MNIST dataset...")
+    (x_train_raw, y_train), (x_test_raw, y_test) = mnist.load_data()
+    
+    # Load normalised data for training/evaluation
+    (x_train, _), (x_test, _) = load_data()
+    
     # Check if saved model exists
     if os.path.exists(model_path):
-        print(f"Found existing model at {model_path}")
+        print(f"\nFound existing model at {model_path}")
         choice = input("Load existing model? (y/n): ").strip().lower()
         
         if choice == 'y':
             model = load_model(model_path)
             print("\nModel loaded successfully!")
             
-            # Load test data to evaluate
-            print("\nLoading test data...")
-            (x_train, y_train), (x_test, y_test) = load_data()
-            
             # Evaluate loaded model
             print("\nEvaluating loaded model...")
             loss, accuracy = model.evaluate(x_test, y_test, verbose=0)
             print(f"Test accuracy: {accuracy*100:.2f}%")
+            
+            # Test predictions
+            test_predictions(model, x_test_raw, y_test, num_samples=5)
             return
     
     # Train new model
-    print("Training new model...\n")
-    
-    # Load and normalise data
-    print("Loading MNIST dataset...")
-    (x_train, y_train), (x_test, y_test) = load_data()
+    print("\nTraining new model...")
     
     # Create model
     print("\nCreating MLP model...")
@@ -91,7 +123,11 @@ def main():
     # Save the trained model
     print(f"\nSaving model to {model_path}...")
     save_model(model, model_path)
-    print("Done! Model can be loaded later without retraining.")
+    
+    # Test predictions on trained model
+    test_predictions(model, x_test_raw, y_test, num_samples=5)
+    
+    print("\nDone! Model can make predictions on new images.")
 
 if __name__ == "__main__":
     main()

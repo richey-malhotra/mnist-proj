@@ -1,39 +1,43 @@
-# Phase 4 Development Diary
+# Phase 5 Development Diary
 
 ## Session Goal
 
-Save trained models to disk so I don't have to retrain every time. Same model from Phase 3, just saved to a file now.
+Add prediction functionality. I need to make the model actually classify new digit images. Need to figure out preprocessing and how to interpret the model's output.
 
-## What I Did
+## Understanding the Output
 
-Right now the trained model only exists in memory, so soon as the script finishes, all 101,770 trained parameters are lost and I have to wait 2 minutes to retrain. Annoying.
+Had to work out what `model.predict()` gives back. It's not just one answer - you get 10 numbers, one per digit, each showing how likely the model thinks that digit is. They add up to 1.0 so they're basically probabilities. Then you find whichever one is biggest with `argmax()`. Took me a minute to figure out what argmax meant but it's literally just "which index has the highest value".
 
-Googled "keras save model" and found two main formats: SavedModel (directory-based, the older approach) and `.keras` (single file, newer, recommended). Went with `.keras` because it's simpler. One file instead of a whole directory structure. According to the docs it saves everything: architecture, weights, optimiser state, compilation settings. Once it's loaded you can just use it straight away, no need to recompile.
+## The Two Bugs
 
-Created an `artifacts/` directory to keep model files separate from code. Called it "artifacts" because that's the term the TensorFlow tutorials use for saved model files - I originally was going to call it `models/` but that could get confused with the `models.py` file. Used `os.makedirs('artifacts', exist_ok=True)` in the save function so it creates the folder if needed without errors if it already exists. The save and load functions in `models.py` are short - they basically just call `model.save()` and `keras.models.load_model()` and that's it. See models.py for the code.
+This phase was trickier than expected because I hit two separate issues back to back.
 
-Added a yes/no choice to `app.py`. It checks if `artifacts/mnist_mlp.keras` exists using `os.path.exists()` and asks if you want to load it or train fresh. Had a minor issue with `input()` not handling uppercase, so typing "Y" didn't match "y" until I added `.strip().lower()`. The saved file is about 416KB, which seemed small for 101k parameters plus all the architecture info. Not sure why it's that small but it works.
+**Shape error.** Tried passing a single image directly to the model and got "expected 3 dimensions, got 2". The model was trained on batches shaped `(60000, 28, 28)` but my single image was just `(28, 28)` with no batch dimension. Fix was `np.expand_dims(image, axis=0)` which reshapes it to `(1, 28, 28)`, i.e. a "batch of one". Found another way with `np.newaxis` but went with expand_dims since it was easier to understand.
+
+**Normalisation mismatch.** Got predictions working but they were terrible - basically random guesses even though the model has 97% accuracy. Took me ages to realise I was passing in raw pixels (0-255) but the model was trained on normalised data (0-1). Once I added `image.astype('float32') / 255.0` before predicting, everything worked properly. This one was frustrating because the model ran fine, it just gave garbage results. So the preprocessing has to be the same for training and prediction or it just gives you rubbish.
+
+## The predict_digit Function
+
+Put it all together into one function in models.py: normalise, add batch dimension, predict, find the max, calculate confidence as a percentage. See models.py for the code. The `verbose=0` flag stops the progress bar showing for each individual prediction, which was annoying when testing multiple images.
+
+Confidence scores are interesting. Most predictions come back at 99%+ but occasionally you get something lower like 85%, which usually means the digit is ambiguous. High confidence doesn't mean it's actually right though. I saw one prediction at 97.8% confidence that was completely wrong. Some digits must just look similar to the model.
 
 ## Testing
 
-Tested both paths. Save works, load works, accuracy matches (97.35% before and after loading). Loading is basically instant versus 2 minutes for retraining. Also tested the "train fresh" path to make sure it overwrites the old file properly. Done.
+Loaded the saved model from Phase 4 and ran predictions on 5 random test images. Got 4 out of 5 correct - the wrong one was a 3 that got predicted as 5 with high confidence. Makes sense, 3s and 5s probably look similar in scruffy handwriting. Overall test accuracy was 97.48% which lines up with what I got in training.
 
-## Git and Binary Files
-
-Added the .keras model files to .gitignore. Read online that you shouldn't commit binary files to git because they bloat the repository - git can't diff them properly so it stores the whole file every time, and model files change every time you retrain. The artifacts folder still exists in the repo for the code that references it, but the actual model files stay local. You just retrain when you clone the project. Makes sense since training only takes a couple of minutes anyway.
-
-One annoying thing - git doesn't track empty folders. So even though the `artifacts/` directory exists on my machine, it wouldn't appear in the repo because all the files inside it are gitignored. Found a Stack Overflow answer that said you can put an empty file called `.gitkeep` inside the folder and git will track that, which keeps the folder in the repo. It's not actually a git feature, just a convention people use. The name doesn't matter but `.gitkeep` is what everyone seems to call it.
+Actually using the model to classify things feels like real progress. Up until now it was all setup and training, and this is the first time the model is actually *doing* something useful. The testing function is satisfying to watch too, seeing correct/incorrect predictions on random samples.
 
 ## What I Learned
 
-First time using `os.path.exists()` and `os.makedirs()`, both simple but useful for any file management. The `.strip().lower()` thing for checking what the user typed is something I'll probably use in every project from now on. Basically, saving and loading the model turns a 2-minute wait into a 2-second load, which makes development way faster since I'm not sitting through training every time I want to test predictions.
+So neural networks give you probabilities for all 10 classes, not just one answer. You also have to preprocess exactly the same way as training or it all breaks. And models always want that batch dimension even if you're only giving it one image - that one keeps catching me out. The confidence scores are interesting too, could be useful later for flagging ones the model isn't sure about.
 
-## Wrapping Up
+The normalisation bug was the biggest lesson. The model ran without errors, it just silently gave bad results because the input data was in the wrong range. Way harder to track down than when something just crashes.
 
-Not the most exciting phase but really useful. Didn't actually write much new code but it makes a huge difference - 2 seconds to load vs 2 minutes to train. Still don't really know what the .keras file looks like internally but it works so I'm not going to worry about it.
+## Reflection
 
-Maybe 45 minutes? Wasn't keeping track.
+Trickier than expected but satisfying. The shape error was a quick fix once I'd Googled it, but the normalisation issue took a while to track down. Main thing was getting my head around the 10-probability output format - once that clicked, argmax and confidence scores were straightforward.
 
-## Notes for Next Phase
+Ready to move to Phase 6 and build an actual UI with Gradio. Having working predictions means I can hook them up to a web interface now.
 
-Phase 5 is making actual predictions, which means loading a single image, preprocessing it, and getting a digit classification out of the model. Looking forward to actually using this thing instead of just training it.
+Probably like 2 hours? Lost track.
