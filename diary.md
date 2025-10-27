@@ -1,43 +1,35 @@
-# Phase 5 Development Diary
+# Phase 6 Development Diary
 
-## Session Goal
+Now that Phase 5 has predictions working from the command line, I needed a proper interface. Running a script, seeing five results, and then having to edit the code to test again isn't exactly user-friendly. I wanted a web page where someone could actually interact with the model: type something in, click a button, see a result.
 
-Add prediction functionality. I need to make the model actually classify new digit images. Need to figure out preprocessing and how to interpret the model's output.
+I'd already put `gradio==4.36.1` in requirements.txt ages ago. Gradio's made for ML stuff. You just write a Python function and it makes a web page for you. Way easier than building everything from scratch with something like Flask.
 
-## Understanding the Output
+## Installing Gradio
 
-Had to work out what `model.predict()` gives back. It's not just one answer - you get 10 numbers, one per digit, each showing how likely the model thinks that digit is. They add up to 1.0 so they're basically probabilities. Then you find whichever one is biggest with `argmax()`. Took me a minute to figure out what argmax meant but it's literally just "which index has the highest value".
+First I tried running app_ui.py and got `ModuleNotFoundError: No module named 'gradio'` - bit embarrassing. Gradio was in requirements.txt but I'd never actually installed it because the earlier phases didn't need it. So I ran `pip install -r requirements.txt` again and it pulled down about 30 extra packages (FastAPI, Uvicorn, Hugging Face Hub, loads of stuff I didn't expect). But then it wouldn't actually run - got `ImportError: cannot import name 'HfFolder' from 'huggingface_hub'`. Spent ages Googling this. Pip had installed `huggingface_hub` version 1.0 which removed a function called `HfFolder`, and Gradio 4.36.1 still tries to import it. The fix was adding `huggingface_hub<1.0` to requirements.txt to force an older version. Really annoying - I'd never even heard of huggingface_hub before seeing it in the pip output just now. At least my Python version (3.9.6) wasn't a problem - everything else installed fine.
 
-## The Two Bugs
+## Getting the Hello World Running
 
-This phase was trickier than expected because I hit two separate issues back to back.
+Didn't want to jump straight to image classification without knowing Gradio works, so I started with the simplest possible thing, a text greeting function. The code's in app_ui.py. It's a `gr.Interface` with a textbox input, textbox output, and a function that takes a name and returns a greeting. Added validation so empty input gets a helpful message instead of "Hello !", plus a title and description so the page looks like it belongs to the project.
 
-**Shape error.** Tried passing a single image directly to the model and got "expected 3 dimensions, got 2". The model was trained on batches shaped `(60000, 28, 28)` but my single image was just `(28, 28)` with no batch dimension. Fix was `np.expand_dims(image, axis=0)` which reshapes it to `(1, 28, 28)`, i.e. a "batch of one". Found another way with `np.newaxis` but went with expand_dims since it was easier to understand.
+When you call `demo.launch()`, it starts a local server on port 7860 and opens your browser. First time it loaded I couldn't believe how clean it looked. Professional layout with labelled boxes, a submit button, all from about ten lines of Python. Typed my name in, hit submit, got the greeting back instantly.
 
-**Normalisation mismatch.** Got predictions working but they were terrible - basically random guesses even though the model has 97% accuracy. Took me ages to realise I was passing in raw pixels (0-255) but the model was trained on normalised data (0-1). Once I added `image.astype('float32') / 255.0` before predicting, everything worked properly. This one was frustrating because the model ran fine, it just gave garbage results. So the preprocessing has to be the same for training and prediction or it just gives you rubbish.
+The whole pattern is: user enters something, Gradio calls your function, displays whatever it returns. I initially thought the function would need special decorators or a specific set of arguments but it doesn't. It's just a regular Python function. Gradio handles all the web stuff for you.
 
-## The predict_digit Function
-
-Put it all together into one function in models.py: normalise, add batch dimension, predict, find the max, calculate confidence as a percentage. See models.py for the code. The `verbose=0` flag stops the progress bar showing for each individual prediction, which was annoying when testing multiple images.
-
-Confidence scores are interesting. Most predictions come back at 99%+ but occasionally you get something lower like 85%, which usually means the digit is ambiguous. High confidence doesn't mean it's actually right though. I saw one prediction at 97.8% confidence that was completely wrong. Some digits must just look similar to the model.
+Took me a minute to get the `fn=greet` bit - writing `greet` without the brackets doesn't actually call it, it just hands the function itself over to Gradio so Gradio can call it later when someone clicks submit. It's like giving someone a recipe vs actually cooking the food. Looked this up properly and it's called a callback. The idea is actually pretty simple once you get it: instead of calling the function yourself, you hand it to someone else's code and say "here, run this when something happens". You're giving the function away. Gradio holds onto it and then "calls it back" whenever the user clicks Submit. I think the reason callbacks are so common in UI stuff is that you can't predict when a user will click something - you can't just write code that sits there waiting. So you give the framework your function and let it sort out the timing. Bit of a weird concept at first but it makes sense once you see it working.
 
 ## Testing
 
-Loaded the saved model from Phase 4 and ran predictions on 5 random test images. Got 4 out of 5 correct - the wrong one was a 3 that got predicted as 5 with high confidence. Makes sense, 3s and 5s probably look similar in scruffy handwriting. Overall test accuracy was 97.48% which lines up with what I got in training.
+Noticed Gradio created a `flagged/` folder in the project directory - it saves inputs and outputs there when you click the Flag button. Added it to `.gitignore` since it's just local data.
 
-Actually using the model to classify things feels like real progress. Up until now it was all setup and training, and this is the first time the model is actually *doing* something useful. The testing function is satisfying to watch too, seeing correct/incorrect predictions on random samples.
-
-## What I Learned
-
-So neural networks give you probabilities for all 10 classes, not just one answer. You also have to preprocess exactly the same way as training or it all breaks. And models always want that batch dimension even if you're only giving it one image - that one keeps catching me out. The confidence scores are interesting too, could be useful later for flagging ones the model isn't sure about.
-
-The normalisation bug was the biggest lesson. The model ran without errors, it just silently gave bad results because the input data was in the wrong range. Way harder to track down than when something just crashes.
+Ran app_ui.py and confirmed the interface loads on localhost:7860. Typed "Harpreet" and got the expected greeting back. Tested empty input - got the validation message. Stopped the server with Ctrl+C, shut down cleanly. One minor annoyance: restarting immediately after Ctrl+C gave "Address already in use" because the port hadn't freed up yet. Just had to wait about 10 seconds.
 
 ## Reflection
 
-Trickier than expected but satisfying. The shape error was a quick fix once I'd Googled it, but the normalisation issue took a while to track down. Main thing was getting my head around the 10-probability output format - once that clicked, argmax and confidence scores were straightforward.
+Honestly expected the web UI to be the hardest part of this project, but Gradio makes it really easy. Only hiccup was forgetting to actually install it even though it was in requirements.txt, the ModuleNotFoundError was a bit embarrassing. Once installed, everything just worked.
 
-Ready to move to Phase 6 and build an actual UI with Gradio. Having working predictions means I can hook them up to a web interface now.
+The basic idea (function plus inputs plus outputs plus launch) is so simple that the actual coding took about fifteen minutes. The comparison with Phase 5's command-line approach is massive. Instead of run-once scripts I've got a web page that stays running and looks decent and could even be shared over a local network.
 
-Probably like 2 hours? Lost track.
+Phase 7 should be straightforward: swap the textbox for an image upload and connect it to `predict_digit()` from models.py. The prediction logic's already done. Really glad I went with Gradio.
+
+About an hour total. Most of it was spent on the actual code rather than setup.

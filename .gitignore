@@ -2,6 +2,7 @@ __pycache__/
 *.pyc
 venv/
 .venv/
+flagged/
 .DS_Store
 
 # Trained models and database (binary files, regenerated locally)

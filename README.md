@@ -1,83 +1,86 @@
-# Phase 5: Make Predictions
+# Phase 6: Hello World Gradio Interface
 
 ## What Changed
 
-- Added prediction functionality to classify digit images
-- Added the preprocessing stuff: normalising pixels and adding the batch dimension
-- Model loads from Phase 4's saved file and predicts with confidence scores
-- Tests on 5 random images each run to check it's actually working
+- Created first web interface using Gradio
+- Simple text demo: name input, greeting output
+- New file `app_ui.py`, where all UI code lives from now on
+- Gradio builds HTML/CSS/JavaScript automatically from Python
 
-Phase 4 saved the trained model to disk. This phase makes it actually *do* something. It takes an image and tells you what digit it is.
+Phase 5 had predictions working from the command line, but running a script, seeing five results, and editing code to test again isn't user-friendly. Wanted a web page where someone could interact with the model properly.
 
-## Understanding the Output
+## Installing Gradio
 
-First thing was figuring out what `model.predict()` actually returns. Turns out it gives you an array of 10 numbers, one probability for each digit 0-9, all adding up to 1.0. So if the fourth number (index 3) is 0.85, the model is 85% sure it's a 3. To get the predicted digit you use `argmax()` which finds the index of the highest value. Simple once you know the name, but took me a minute to remember it.
+Gradio was in requirements.txt from Phase 1 but I'd never actually installed it because earlier phases didn't need it. Running app_ui.py gave `ModuleNotFoundError: No module named 'gradio'`, so I ran `pip install -r requirements.txt` again and it pulled down about 30 extra packages (FastAPI, Uvicorn, Hugging Face Hub, loads of unexpected stuff). But then when I tried to run my app I got `ImportError: cannot import name 'HfFolder' from 'huggingface_hub'`. Took me a while to figure out - turns out pip installed `huggingface_hub` version 1.0, which removed something called `HfFolder` that Gradio 4.36.1 still needs. Had to add `huggingface_hub<1.0` to requirements.txt to force pip to install an older version. Annoying that a package I never even asked for can break everything.
 
-## Two Bugs, Back to Back
+## The Hello World
 
-**Shape error.** Tried passing a single image to the model and got "expected 3 dimensions, got 2". The model was trained on batches shaped `(60000, 28, 28)` but my image was just `(28, 28)` - no batch dimension. Fix was `np.expand_dims(image, axis=0)` to reshape to `(1, 28, 28)`, a "batch of one". Found another way to do it with `np.newaxis` but expand_dims made more sense to me.
-
-**Normalisation mismatch.** Got predictions working but they were terrible - basically random guesses despite 97% accuracy. Spent a while confused before realising I was feeding raw pixels (0-255) but the model was trained on normalised data (0-1). Added `image.astype('float32') / 255.0` before predicting and everything worked. Frustrating because the model ran fine, it just silently gave garbage. Basically you have to preprocess the same way for training and prediction or you get rubbish results.
-
-## The predict_digit Function
-
-Put it together in `models.py`: normalise, add batch dimension, predict, argmax, calculate confidence percentage. The `verbose=0` flag stops the progress bar per prediction, which was annoying when testing multiple images.
-
-Confidence scores are interesting. Most come back at 99%+ but occasionally you get 85%, which usually means the digit is ambiguous. Doesn't mean it's actually right though. I saw one prediction at 97.8% that was completely wrong. Some digits just look similar.
-
-## Why Two Datasets?
+Didn't want to jump straight to image classification without knowing Gradio works. Started with the simplest possible thing, a function that takes a name and returns a greeting:
 
 ```python
-# Raw (0-255) for predictions
-(x_train_raw, y_train), (x_test_raw, y_test) = mnist.load_data()
-# Normalised (0-1) for training
-(x_train, _), (x_test, _) = load_data()
+demo = gr.Interface(
+    fn=greet,
+    inputs=gr.Textbox(label="Your Name"),
+    outputs=gr.Textbox(label="Greeting"),
+    title="MNIST Digit Recognition - Hello World"
+)
+demo.launch()
 ```
 
-Model was trained on normalised data, so predictions need normalisation too. But I load raw data separately so `predict_digit()` handles preprocessing itself, which is what'll happen when someone actually uses the app later.
+The whole pattern is: user enters something, Gradio calls your function, displays whatever it returns. I initially thought the function would need special decorators or something, but it's just a regular Python function. Gradio sorts out all the web stuff for you.
+
+When it worked, I was surprised how clean it looked. Professional layout with labelled boxes, a submit button, all from about ten lines of Python.
 
 ## Testing
 
-Loaded the saved model from Phase 4 and tested on 5 random images:
+Interface loads on localhost:7860. Typed "Harpreet", got the greeting back. Tested empty input - validation message works. Also tested refreshing the page mid-session and everything resets cleanly, nothing left over from before.
 
-```
-✓ Image 1: Predicted=7, Actual=7, Confidence=99.8%
-✗ Image 2: Predicted=5, Actual=3, Confidence=91.2%
-✓ Image 3: Predicted=2, Actual=2, Confidence=98.3%
-```
+One minor annoyance: restarting immediately after Ctrl+C gave "Address already in use" because the port hadn't freed up. Just had to wait ~10 seconds or kill the process. Later learned you can pass `server_port=7861` to use a different port, but for now the wait wasn't a big deal.
 
-Got 4/5 correct - the wrong one was a 3 predicted as 5, which makes sense for scruffy handwriting. Overall test accuracy: 97.48%, matching training results.
+## How It Works
 
-## Why I Did It This Way
+### Why Gradio?
 
-### Using `float32` Instead of `float64`
+I looked at Flask and Django but they seemed like way too much work because you'd have to build the whole UI yourself with HTML and JavaScript. Streamlit was another option but Gradio is made for ML stuff and already has things like image uploads and charts built in, which I knew I'd need later. Basically Gradio lets me focus on the Python code and it handles all the web stuff automatically.
+
+### Empty Input Check
 
 ```python
-image = image.astype('float32') / 255.0
+if not name or name.strip() == "":
+    return "Hello! Please enter your name."
 ```
 
-I used `float32` because that's what TensorFlow uses internally. Using a different type might cause problems.
+Two checks - `not name` catches if it's `None` (which Gradio sends if you never type anything), and `.strip() == ""` catches if you just type spaces. Had to put the `not name` check first because calling `.strip()` on `None` would crash.
 
-### Converting NumPy Types to Python Types
+### Testing Gradio on Its Own First
 
-```python
-digit = int(prediction.argmax())
-confidence = float(prediction[0][digit]) * 100
+`app_ui.py` doesn't import anything from `models.py` in this phase, even though `models.py` exists in the folder. I wanted to make sure Gradio actually worked before trying to connect it to the model. Easier to figure out what's wrong that way.
+
+## File Structure
+
+```
+gradio_phase6/
+├── app_ui.py          # Gradio web interface (43 lines)
+├── models.py          # Model architectures (unchanged from Phase 5)
+├── requirements.txt   # Dependencies (Gradio already listed)
+└── artifacts/
+    └── mnist_mlp.keras
 ```
 
-`argmax()` returns a NumPy type, not a regular Python int. I found that other parts of the code sometimes didn't work with NumPy types, so wrapping them with `int()` and `float()` just makes sure they're normal Python numbers. Easy to forget but it avoids random errors later.
+## How to Run
 
-### Why `prediction[0][digit]`
+```bash
+python app_ui.py
+```
 
-`model.predict()` always gives back a 2D array even when you only give it one image. So `prediction[0]` gets the first (and only) result, and then `[digit]` gets the confidence for the predicted digit. It's because I added the batch dimension with `np.expand_dims` earlier, so the output shape matches the input shape.
+Opens browser automatically at http://localhost:7860. Stop with Ctrl+C.
 
-## Differences from Phase 4
+## Differences from Phase 5
 
-| Aspect | Phase 4 | Phase 5 |
+| Aspect | Phase 5 | Phase 6 |
 |--------|---------|---------|
-| **Functionality** | Train, save, load | + Make predictions |
-| **models.py** | 48 lines | 96 lines (+48) |
-| **app.py** | 97 lines | 156 lines (+59) |
-| **New functions** | None | `preprocess_image()`, `predict_digit()`, `test_predictions()` |
-| **Data loading** | Normalised only | Raw + normalised |
-| **Model output** | Accuracy % | Individual predictions with confidence |
+| **Interface** | Command-line | Web UI (Gradio) |
+| **User interaction** | Terminal input | Browser-based |
+| **New file** | - | app_ui.py (43 lines) |
+| **UI framework** | None | Gradio |
+| **Purpose** | Demo predictions in terminal | Test Gradio before adding predictions |
