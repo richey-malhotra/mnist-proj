@@ -1,86 +1,69 @@
-# Phase 6: Hello World Gradio Interface
+# Phase 7: Image Upload and Prediction
 
 ## What Changed
 
-- Created first web interface using Gradio
-- Simple text demo: name input, greeting output
-- New file `app_ui.py`, where all UI code lives from now on
-- Gradio builds HTML/CSS/JavaScript automatically from Python
+- Swapped Phase 6's text greeting for a real image classifier
+- Added the code to convert uploaded images into MNIST format
+- Model loads once at startup so it's not reloading on every prediction
+- Output shows predicted digit with confidence percentage
 
-Phase 5 had predictions working from the command line, but running a script, seeing five results, and editing code to test again isn't user-friendly. Wanted a web page where someone could interact with the model properly.
+This is the phase where the model from Phase 3, the prediction logic from Phase 5, and the Gradio UI from Phase 6 all come together into one working app.
 
-## Installing Gradio
+## PIL vs Pillow
 
-Gradio was in requirements.txt from Phase 1 but I'd never actually installed it because earlier phases didn't need it. Running app_ui.py gave `ModuleNotFoundError: No module named 'gradio'`, so I ran `pip install -r requirements.txt` again and it pulled down about 30 extra packages (FastAPI, Uvicorn, Hugging Face Hub, loads of unexpected stuff). But then when I tried to run my app I got `ImportError: cannot import name 'HfFolder' from 'huggingface_hub'`. Took me a while to figure out - turns out pip installed `huggingface_hub` version 1.0, which removed something called `HfFolder` that Gradio 4.36.1 still needs. Had to add `huggingface_hub<1.0` to requirements.txt to force pip to install an older version. Annoying that a package I never even asked for can break everything.
+First thing I needed was a way to resize images. Found PIL for working with images, except PIL is ancient and unmaintained - the actual package you install is called Pillow. But you still write `from PIL import Image` in your code. I literally tried `import Pillow` first and it just doesn't work. It's basically a newer version but they kept the old name so existing code still works. Confusing, but bit weird but whatever.
 
-## The Hello World
+## The Preprocessing Steps
 
-Didn't want to jump straight to image classification without knowing Gradio works. Started with the simplest possible thing, a function that takes a name and returns a greeting:
+Getting a user's uploaded photo into the shape the model expects turned out to be a longer chain than I thought. Six steps total:
 
-```python
-demo = gr.Interface(
-    fn=greet,
-    inputs=gr.Textbox(label="Your Name"),
-    outputs=gr.Textbox(label="Greeting"),
-    title="MNIST Digit Recognition - Hello World"
-)
-demo.launch()
-```
+1. **NumPy array → PIL Image**: Gradio passes uploads as NumPy arrays, but PIL handles resizing better
+2. **Convert to greyscale** with `.convert('L')`. The 'L' just means grey (I had to look that up), strips RGB channels down to one
+3. **Resize to 28×28**: MNIST standard size, uses PIL's default resize method
+4. **Back to NumPy array**: the model works with arrays, not PIL objects
+5. **Normalise to 0-1**: divide by 255.0, same as Phase 3's training preprocessing
+6. **Add batch dimension**: `np.expand_dims(axis=0)` reshapes (28, 28) to (1, 28, 28) because Keras models expect batches
 
-The whole pattern is: user enters something, Gradio calls your function, displays whatever it returns. I initially thought the function would need special decorators or something, but it's just a regular Python function. Gradio sorts out all the web stuff for you.
+The **order matters** for the greyscale step. If you resize a colour image first, you get (28, 28, 3) because three channels survive the resize. Converting to greyscale before resizing strips it down to a single channel and gives you the (28, 28) shape the model expects.
 
-When it worked, I was surprised how clean it looked. Professional layout with labelled boxes, a submit button, all from about ten lines of Python.
+And yes, I forgot the batch dimension again. Same exact error as Phase 5: "expected 3 dimensions, got 2". At least this time I recognised it immediately.
+
+## The api_name Bug
+
+The app crashed on page load with `TypeError: argument of type 'bool' is not iterable` deep inside gradio_client code. Had to add `api_name=False` to the Interface constructor to fix it. Not a great error message but at least the fix is one extra parameter. This comes back in Phase 8 too.
+
+## Confidence Output
+
+Initially just returned the predicted digit as a bare number, which wasn't very useful - you can't tell whether the model is certain or guessing. Changed it to show digit plus confidence percentage: "Predicted Digit: 7, Confidence: 98.45%". Way better because you can actually see if it's sure or just guessing.
 
 ## Testing
 
-Interface loads on localhost:7860. Typed "Harpreet", got the greeting back. Tested empty input - validation message works. Also tested refreshing the page mid-session and everything resets cleanly, nothing left over from before.
+Clean MNIST-style digits got 99%+ confidence. A colour phone photo of a handwritten 3 came through at about 87%. The greyscale conversion and resizing handled it, but some quality is obviously lost. Even uploaded a photo of a cat to see what happens, and the model predicted 8 with low confidence. It doesn't know how to reject non-digits, it just picks the closest one and gives it a probability. Worth remembering for later.
 
-One minor annoyance: restarting immediately after Ctrl+C gave "Address already in use" because the port hadn't freed up. Just had to wait ~10 seconds or kill the process. Later learned you can pass `server_port=7861` to use a different port, but for now the wait wasn't a big deal.
+## Decisions
 
-## How It Works
+### Greyscale Conversion
 
-### Why Gradio?
+The code uses PIL's `.convert('L')` to convert colour images to greyscale. There's supposedly a more "proper" way that weights green higher because our eyes are more sensitive to it, but for black-and-white digit images it doesn't really matter. The code also checks if the image is already greyscale and skips the conversion if so.
 
-I looked at Flask and Django but they seemed like way too much work because you'd have to build the whole UI yourself with HTML and JavaScript. Streamlit was another option but Gradio is made for ML stuff and already has things like image uploads and charts built in, which I knew I'd need later. Basically Gradio lets me focus on the Python code and it handles all the web stuff automatically.
-
-### Empty Input Check
+### Error Handling
 
 ```python
-if not name or name.strip() == "":
-    return "Hello! Please enter your name."
+try:
+    ...
+except Exception as e:
+    return f"Error: {str(e)}"
 ```
 
-Two checks - `not name` catches if it's `None` (which Gradio sends if you never type anything), and `.strip() == ""` catches if you just type spaces. Had to put the `not name` check first because calling `.strip()` on `None` would crash.
+I wrapped the prediction code in a try/except so if something goes wrong, it shows an error message instead of crashing. I also added a check for `None` in case nothing was uploaded. I just wanted to make sure the app doesn't completely break on bad input.
 
-### Testing Gradio on Its Own First
+## Differences from Phase 6
 
-`app_ui.py` doesn't import anything from `models.py` in this phase, even though `models.py` exists in the folder. I wanted to make sure Gradio actually worked before trying to connect it to the model. Easier to figure out what's wrong that way.
-
-## File Structure
-
-```
-gradio_phase6/
-├── app_ui.py          # Gradio web interface (43 lines)
-├── models.py          # Model architectures (unchanged from Phase 5)
-├── requirements.txt   # Dependencies (Gradio already listed)
-└── artifacts/
-    └── mnist_mlp.keras
-```
-
-## How to Run
-
-```bash
-python app_ui.py
-```
-
-Opens browser automatically at http://localhost:7860. Stop with Ctrl+C.
-
-## Differences from Phase 5
-
-| Aspect | Phase 5 | Phase 6 |
+| Aspect | Phase 6 | Phase 7 |
 |--------|---------|---------|
-| **Interface** | Command-line | Web UI (Gradio) |
-| **User interaction** | Terminal input | Browser-based |
-| **New file** | - | app_ui.py (43 lines) |
-| **UI framework** | None | Gradio |
-| **Purpose** | Demo predictions in terminal | Test Gradio before adding predictions |
+| **Interface** | Text greeting | Image classification |
+| **Input** | `gr.Textbox` | `gr.Image` |
+| **Processing** | String formatting | 6-step preprocessing chain |
+| **Model usage** | None | Loaded at startup, used for prediction |
+| **Output** | Greeting text | Digit + confidence % |
+| **New concept** | Gradio basics | PIL/Pillow, image preprocessing |

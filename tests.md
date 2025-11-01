@@ -102,3 +102,35 @@ Checked that predictions actually work on individual test images and that the mo
 ### Bugs found
 
 **Nothing major this time.** The predictions worked as expected. I was surprised that the faint digit still got predicted correctly — the model handles bad input better than I expected. The 3 images it got wrong were genuinely hard to read even for me, so I'd say that's fair.
+---
+
+## Phase 7 — Image Upload and Prediction
+
+### What I tested
+
+Tested uploading images through the Gradio interface — different sizes, formats, and edge cases.
+
+### Tests
+
+| # | What I tried | Type | Expected | Actual | Pass? |
+|---|---|---|---|---|---|
+| 1 | Upload a clear photo of a 5 | Normal | Predicts 5 | Predicted 5 (98.1% confidence) | Yes |
+| 2 | Upload a photo from my phone camera (4032x3024) | Normal | Should resize and predict | Correctly resized to 28x28, predicted right | Yes |
+| 3 | Upload a very small image (10x10 pixels) | Boundary | Should still work, maybe less accurate | Upscaled to 28x28, prediction was still correct | Yes |
+| 4 | Upload a photo of something that isn't a digit (a mug) | Erroneous | Will predict something — can't really handle this | Predicted 0 with 43% confidence. Can't detect non-digits | Yes (known limitation) |
+| 5 | Upload a colour image of a digit | Normal | Should convert to greyscale | Predicted correctly after conversion | Yes |
+| 6 | Upload a PNG with transparent background | Boundary | Should work | The transparent pixels became black which actually worked fine since MNIST is white-on-black. But a digit drawn on a coloured background would look wrong after conversion | Partial |
+
+### Screenshots
+
+![Upload interface before selecting an image](screenshots/phase7_upload_interface.png)
+
+![Prediction result after uploading a digit](screenshots/phase7_prediction_result.png)
+
+### Bugs found
+
+**Colour images weren't converting properly.** The first time I uploaded a colour photo it crashed because the model expects a single channel (greyscale) but the image had 3 channels (RGB). I had to add `.convert('L')` in the preprocessing to force greyscale conversion. After that it worked fine.
+
+Also the image comes in from Gradio as a numpy array not a PIL Image, so I had to convert it first with `Image.fromarray()`. Took me a while to figure that out because the error messages weren't super clear.
+
+**Images with alpha channels (RGBA) aren't handled properly.** If someone uploads a PNG with transparency, the alpha channel gets included as a 4th channel and the conversion to greyscale treats it weirdly. I should probably strip the alpha channel first but I haven't got round to it yet. Most test images are JPEG anyway so it doesn't come up often.
