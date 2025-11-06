@@ -1,37 +1,35 @@
-# Phase 7 Development Diary
+# Phase 8 Development Diary
 
-This is the phase where everything actually comes together. The model from Phase 3, the prediction logic from Phase 5, the Gradio UI from Phase 6 - all wired into one working app. I swapped out the hello-world text interface for a real image upload that classifies handwritten digits. 
+## The Big Structural Change
 
-## PIL, Pillow, and why naming things is hard
+Phase 7's prediction-only setup worked fine, but now I need both training AND prediction in the same app. Checked the Gradio docs and `gr.Interface` literally can't do this - it's designed for one function with one set of inputs/outputs. For anything more complex you have to use `gr.Blocks`, which works totally differently.
 
-Needed image resizing and NumPy can't do that, so I searched for how to resize images in Python and ended up at PIL. The naming is weird though - PIL itself is dead and hasn't been updated in years. What you actually install is Pillow, but then you import it with `from PIL import Image`. Tried `import Pillow` first and got an error. Apparently they kept the original import name so old code still works with the new package. Bit of a quirk but easy enough once you know.
+The syntax change took some getting used to. Instead of passing your function to gr.Interface(), you define components inside a `with gr.Blocks()` context and then wire them up with `.click()` event handlers afterwards. Tabs are just `with gr.Tab("Name"):` blocks nested inside. Looks a bit weird with all the nested `with` statements but it sort of matches how the page looks. Blocks contains Tabs, Tabs contain Components.
 
-## The preprocessing steps
+I've used `with` before for opening files but Gradio uses it differently - everything you create inside `with gr.Tab("Train"):` automatically goes inside that tab. When the `with` block ends, that tab is done. So the nesting in the code sort of matches the nesting on the page, which is quite nice once you notice it. Felt weird at first using `with` for something that isn't a file though.
 
-This was the real meat of the phase. Getting a user's uploaded photo into a shape the model can actually use was a longer chain than I expected.
+The wiring is done with `.click()` - you go `button.click(fn=train_function, inputs=[...], outputs=[...])` and that's it, clicking the button calls your function. Same callback idea as the `fn=` thing from Phase 6 but now it's tied to a specific button rather than the whole page.
 
-Gradio's `gr.Image` component passes the image in as a NumPy array by default. So the function receives raw pixel data, which is good, but I still need to do a lot to it before the model can touch it. The steps ended up being: take the NumPy array, convert it to a PIL Image, convert to greyscale with `.convert('L')`, resize to 28x28, convert back to a NumPy array, normalise to 0-1, and add the batch dimension.
+## What I Built
 
-The greyscale step tripped me up at first. I uploaded a colour photo of a handwritten digit and got a shape mismatch because the resized image was (28, 28, 3) because RGB keeps three channels. The model expects (28, 28) with no channel axis. Converting to greyscale before resizing strips it down to a single channel and fixes the shape. The order matters here. If you resize first, the three channels survive the resize.
+Two tabs: Train and Predict. Train tab has number inputs for epochs and batch size (with `gr.Number`, which lets you set a min and max so users can't enter daft values), a button, and a results textbox. Predict tab is basically Phase 7's code moved into a tab wrapper. The train function creates an MLP, trains it on MNIST, saves to artifacts/, and returns the final accuracy. See app_ui.py for all the details.
 
-And then, of course, I forgot the batch dimension. Again. Same exact mistake as Phase 5. The model wants (1, 28, 28) but a single image is just (28, 28), so `np.expand_dims` is needed to wrap it. I got the "expected 3 dimensions, got 2" error and immediately recognised it this time. This keeps coming up - I think at this point I've learned it properly, but I also thought that last time.
+One efficiency thing: I moved the MNIST data loading out of the training function to the top of the file. Otherwise it would reload the dataset every time you click train, which is wasteful. Now it loads once at startup and training starts immediately. Small change but it makes repeated training runs much snappier.
 
-## Wiring up the UI
+Also discovered `variant="primary"` makes buttons blue instead of grey, and `gr.Markdown()` lets you add formatted headers. Small things but they make it look more organised than just everything piled up.
 
-Switching the Gradio interface from text to image input was easier than I expected. I replaced `gr.Textbox` with `gr.Image` for the input, kept `gr.Textbox` for the output, and pointed the function at my preprocessing-and-predict code instead of the old greeting function. The model gets loaded once at the top level when the app starts, so it's not reloading on every prediction.
+## Same Bloody Bug
 
-One thing that caught me: the app crashed on page load with `TypeError: argument of type 'bool' is not iterable` deep inside gradio_client code. Spent a while confused before finding that passing `api_name=False` to the Interface constructor fixes it. Something to do with how Gradio tries to register API endpoints. Not a great error message but at least the fix is simple, just one extra parameter.
+The `api_name=False` thing from Phase 7 came back. Same crash: `TypeError: argument of type 'bool' is not iterable` in gradio_client when the browser tries to load the page. Had to add `api_name=False` to both button click handlers. At least this time I knew the fix immediately instead of spending ages debugging it. Still annoying that it affects gr.Blocks too though. I assumed it was an Interface-specific thing.
 
-For the output, I initially just returned the predicted digit as a bare number. That works but it's not very useful - you can't tell how sure the model is. I changed it to show the digit and a confidence percentage formatted to two decimal places. Something like "Predicted Digit: 7, Confidence: 98.45%" reads much better and actually tells you whether the model is guessing or certain.
+Also hit a type conversion issue. `gr.Number` returns floats but `model.fit()` wants integer epochs. Quick `int()` cast sorted it. And at one point I had three Gradio servers running on different ports because I kept forgetting to kill the old ones before restarting. Had to `pkill` everything and start fresh. Need to get in the habit of Ctrl+C before re-running.
 
-Testing with actual photos was really satisfying. Clean MNIST-style digits got 99%+ confidence. A colour phone photo of a handwritten 3 came through at about 87%. The greyscale conversion and resizing handled it properly. A messy 9 got around 62%, which makes sense. I even uploaded a photo of a cat just to see what would happen, and the model predicted 8 with low confidence. It doesn't know how to reject non-digits, it just picks the closest one. That's a problem but I'm not going to fix it now.
+## Testing
 
-I also wrapped the prediction in `try/except` so if anything goes wrong (dodgy image, missing model file, whatever) it shows an error message instead of the whole app crashing with a Python traceback. The `except Exception as e` bit catches pretty much any error and sticks the message in `e`. Not sure if catching everything like that is the best way to do it - probably should catch specific errors - but I don't actually know what all the possible errors are yet so catching the lot at least keeps things running.
+Ran the app, trained an MLP for 3 epochs from the UI. Took about 90 seconds, got ~97% accuracy - same as the command-line version in Phase 3. Switched to Predict tab after training, uploaded a test image, prediction still works. The main issue is there's no progress bar during training, so the UI just sits there for 90 seconds looking frozen. Needs fixing but that's a later phase.
 
 ## Reflection
 
-Actually feels like a proper app now. Someone could sit down, upload a photo, and get a prediction. The whole thing actually works now. The preprocessing has loads of steps but they're all needed, so I'm fine with it.
+Bigger jump than I expected. Phase 7 was about 80 lines, this is over 200. But actually feels like a real app now. You've got training and prediction in proper tabs. gr.Blocks needs more code but you can do way more with it.
 
-The PIL/Pillow naming thing is just annoying. You'd never guess it unless someone told you. The batch dimension mistake is becoming a running joke at this point lol, though at least now I catch it faster. The colour image thing caught me out because I didn't think about what the data actually looks like going into the model.
-
-Roughly 3 hours for this phase.
+Training from a web browser instead of a terminal is satisfying. Click a button, wait, see results. It's the same code underneath but it feels completely different. Frozen screen during training really needs fixing tho.

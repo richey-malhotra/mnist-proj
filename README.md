@@ -1,69 +1,90 @@
-# Phase 7: Image Upload and Prediction
+# Phase 8: Tabbed Interface with gr.Blocks
 
 ## What Changed
 
-- Swapped Phase 6's text greeting for a real image classifier
-- Added the code to convert uploaded images into MNIST format
-- Model loads once at startup so it's not reloading on every prediction
-- Output shows predicted digit with confidence percentage
+- Migrated from `gr.Interface` to `gr.Blocks`
+- Added two tabs: Train and Predict
+- MNIST data loads once when the app starts instead of every click
+- Added `variant="primary"` for blue buttons and `gr.Markdown` headers
 
-This is the phase where the model from Phase 3, the prediction logic from Phase 5, and the Gradio UI from Phase 6 all come together into one working app.
+The app went from just doing predictions to something that actually feels useable - you can train a model and test it without touching the terminal.
 
-## PIL vs Pillow
+## Why gr.Blocks?
 
-First thing I needed was a way to resize images. Found PIL for working with images, except PIL is ancient and unmaintained - the actual package you install is called Pillow. But you still write `from PIL import Image` in your code. I literally tried `import Pillow` first and it just doesn't work. It's basically a newer version but they kept the old name so existing code still works. Confusing, but bit weird but whatever.
+Phase 7 used `gr.Interface`, which is designed for one function with one set of inputs/outputs. I need both training AND prediction, and Interface literally can't do that. `gr.Blocks` is the answer. It's a different way of building the UI where you put components inside `with` blocks and then connect button clicks to functions afterwards.
 
-## The Preprocessing Steps
+The syntax took some getting used to. Instead of passing a function to a constructor, you nest everything in `with` statements:
 
-Getting a user's uploaded photo into the shape the model expects turned out to be a longer chain than I thought. Six steps total:
+```python
+with gr.Blocks() as demo:
+    with gr.Tab("Train"):
+        # training components here
+    with gr.Tab("Predict"):
+        # prediction components here
+```
 
-1. **NumPy array → PIL Image**: Gradio passes uploads as NumPy arrays, but PIL handles resizing better
-2. **Convert to greyscale** with `.convert('L')`. The 'L' just means grey (I had to look that up), strips RGB channels down to one
-3. **Resize to 28×28**: MNIST standard size, uses PIL's default resize method
-4. **Back to NumPy array**: the model works with arrays, not PIL objects
-5. **Normalise to 0-1**: divide by 255.0, same as Phase 3's training preprocessing
-6. **Add batch dimension**: `np.expand_dims(axis=0)` reshapes (28, 28) to (1, 28, 28) because Keras models expect batches
+Looks a bit weird with all the nested `with` statements but it kind of matches how the page is laid out: Blocks contains Tabs, Tabs contain Components. You connect button clicks with `button.click(fn=..., inputs=[...], outputs=[...])` after the components are defined.
 
-The **order matters** for the greyscale step. If you resize a colour image first, you get (28, 28, 3) because three channels survive the resize. Converting to greyscale before resizing strips it down to a single channel and gives you the (28, 28) shape the model expects.
+The jump from ~80 lines (Phase 7) to 194 lines feels big, but most of it is just setting up the buttons and layout.
 
-And yes, I forgot the batch dimension again. Same exact error as Phase 5: "expected 3 dimensions, got 2". At least this time I recognised it immediately.
+## Loading Data Once at the Start
 
-## The api_name Bug
+Moved MNIST loading out of the training function to the top of the file. Otherwise it would reload the data every time you click Train, which is wasteful and slow. Now it loads once at startup and training starts immediately. Only a small change but it makes a big difference if you're training multiple times.
 
-The app crashed on page load with `TypeError: argument of type 'bool' is not iterable` deep inside gradio_client code. Had to add `api_name=False` to the Interface constructor to fix it. Not a great error message but at least the fix is one extra parameter. This comes back in Phase 8 too.
+## Same Bug, Again
 
-## Confidence Output
+The `api_name=False` crash from Phase 7 came back. Same `TypeError: argument of type 'bool' is not iterable`. Had to add it to both button click handlers. At least this time I knew the fix immediately instead of spending ages debugging. Still annoying that it affects Blocks too. I assumed it was Interface-specific.
 
-Initially just returned the predicted digit as a bare number, which wasn't very useful - you can't tell whether the model is certain or guessing. Changed it to show digit plus confidence percentage: "Predicted Digit: 7, Confidence: 98.45%". Way better because you can actually see if it's sure or just guessing.
+Also hit a type conversion issue: `gr.Number` returns floats but `model.fit()` wants integer epochs. Quick `int()` cast sorted it.
+
+And at one point I had three Gradio servers running on different ports because I kept forgetting to kill the old ones before restarting. Had to `pkill` everything and start fresh. Need to get in the habit of Ctrl+C before re-running.
 
 ## Testing
 
-Clean MNIST-style digits got 99%+ confidence. A colour phone photo of a handwritten 3 came through at about 87%. The greyscale conversion and resizing handled it, but some quality is obviously lost. Even uploaded a photo of a cat to see what happens, and the model predicted 8 with low confidence. It doesn't know how to reject non-digits, it just picks the closest one and gives it a probability. Worth remembering for later.
+Trained an MLP for 3 epochs from the UI - ~90 seconds, got ~97% accuracy, same as Phase 3's command-line version. Switched to Predict tab, uploaded a test image, prediction still works. The main issue is the UI looks frozen during training. It just sits there for 90 seconds with no feedback. That needs fixing but it's a later phase problem (Phase 10).
 
-## Decisions
+## Things Worth Explaining
 
-### Greyscale Conversion
-
-The code uses PIL's `.convert('L')` to convert colour images to greyscale. There's supposedly a more "proper" way that weights green higher because our eyes are more sensitive to it, but for black-and-white digit images it doesn't really matter. The code also checks if the image is already greyscale and skips the conversion if so.
-
-### Error Handling
+### Default Values for the Controls
 
 ```python
-try:
-    ...
-except Exception as e:
-    return f"Error: {str(e)}"
+epochs_input = gr.Number(label="Epochs", value=3, minimum=1, maximum=20, step=1)
+batch_size_input = gr.Number(label="Batch Size", value=32, minimum=16, maximum=128, step=16)
 ```
 
-I wrapped the prediction code in a try/except so if something goes wrong, it shows an error message instead of crashing. I also added a check for `None` in case nothing was uploaded. I just wanted to make sure the app doesn't completely break on bad input.
+Epochs defaults to 3 because that's enough for the model to learn on MNIST without taking forever. Max is 20 because it doesn't really improve much beyond that. Batch size defaults to 32 because that's what the tutorials use, and I set min/max so users can't enter something silly.
 
-## Differences from Phase 6
+### The Prediction Model Doesn't Update
 
-| Aspect | Phase 6 | Phase 7 |
+The prediction tab loads the model once when the app starts. So if you train a new model, the prediction tab is still using the old one until you restart the app. I know about this but I'll fix it in a later phase.
+
+## File Structure
+
+```
+gradio_phase8/
+├── app_ui.py          # Main application (194 lines)
+├── models.py          # Model architectures (92 lines)
+├── requirements.txt   # Dependencies (unchanged)
+└── artifacts/
+    └── mnist_mlp.keras
+```
+
+## How to Run
+
+```bash
+pip install -r requirements.txt
+python app_ui.py
+```
+
+App opens on http://localhost:7860 with Train and Predict tabs.
+
+## Differences from Phase 7
+
+| Aspect | Phase 7 | Phase 8 |
 |--------|---------|---------|
-| **Interface** | Text greeting | Image classification |
-| **Input** | `gr.Textbox` | `gr.Image` |
-| **Processing** | String formatting | 6-step preprocessing chain |
-| **Model usage** | None | Loaded at startup, used for prediction |
-| **Output** | Greeting text | Digit + confidence % |
-| **New concept** | Gradio basics | PIL/Pillow, image preprocessing |
+| **UI framework** | `gr.Interface` (single function) | `gr.Blocks` (multi-component) |
+| **Features** | Prediction only | Training + prediction |
+| **Input method** | Image upload | Image upload + number inputs |
+| **Tabs** | None | Train, Predict |
+| **Lines of code** | ~80 | 194 (+~114) |
+| **Data loading** | Inside function | Once at startup |
