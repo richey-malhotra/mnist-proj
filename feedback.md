@@ -37,3 +37,40 @@ The phone app idea from Lefteris is interesting but completely out of scope. I'l
 
 - Look into Gradio for building a web interface
 - Add the ability to upload your own images (not just test set indices)
+---
+
+## Phase 9 — Video call with Petros (early November)
+
+### When and how
+
+Video called Petros to show him how the project was going. Screen-shared the Gradio app running in the browser. He was in Athens so we did it over Google Meet. We chatted for a bit first about how uni was going - he's doing a machine learning module this term which is partly why he had so much to say about the technical side.
+
+### What he could see
+
+Working Gradio interface with tabs. You can upload an image and get a prediction. The MLP model is trained and loaded. The UI has a Train tab and a Predict tab.
+
+### What he said
+
+**Petros:** "The interface is clean, nice work. I have a couple of thoughts though."
+
+"First — you're only using an MLP right now. So the thing with MLPs is they flatten the image into a single vector, right? Which means you basically lose all the spatial information — the model doesn't know that pixel (1,1) is next to pixel (1,2). Have you looked into convolutional neural networks? They use these filters that slide across the image, so they can pick up on edges and shapes and that kind of thing. For image stuff they pretty much always do better than MLPs. I'd try at least two different CNN architectures so you can compare."
+
+"Second thing — when I clicked 'Start Training' the page just froze for about 30 seconds. I thought it had crashed. There's no indication that anything is happening. You should show some kind of progress, even if it's just printing the epoch number as it goes."
+
+He also mentioned data augmentation — "you could rotate, shift, or zoom the training images slightly to create more training data. It helps the model generalise better, especially for small datasets. MNIST is big enough that you probably don't need it, but it's worth knowing about for future reference." I wrote this down but it's not something I'm going to implement for this project since MNIST has 60,000 images already.
+
+Before we hung up he asked how much of the coursework mark is for the code vs the write-up. I said it's split across the whole thing — analysis, design, testing, evaluation. He said "make sure you document your design decisions properly, not just what you built but WHY you chose that approach. That's what they look for at uni too." Good advice.
+
+### My thoughts
+
+Both really good points about the MLP and progress display. I've heard of CNNs but haven't tried implementing one yet. The progress thing is embarrassing — I should've noticed that myself. From the user's perspective it looks completely broken when it freezes.
+
+Petros doesn't tell me HOW to do things which is good because I need to figure it out myself for the coursework, but he points me in the right direction. I'll look up CNN architecture in TensorFlow and also look into how Gradio handles streaming output.
+
+The data augmentation idea is interesting but I've got enough to do already. Might look into it later if I have time.
+
+### What I'll do next
+
+- Research CNN model architecture (convolutional layers, pooling, etc.)
+- Fix the training progress to show live updates somehow
+- Try at least 2 different CNN designs (small and deeper)

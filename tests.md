@@ -134,3 +134,23 @@ Tested uploading images through the Gradio interface — different sizes, format
 Also the image comes in from Gradio as a numpy array not a PIL Image, so I had to convert it first with `Image.fromarray()`. Took me a while to figure that out because the error messages weren't super clear.
 
 **Images with alpha channels (RGBA) aren't handled properly.** If someone uploads a PNG with transparency, the alpha channel gets included as a 4th channel and the conversion to greyscale treats it weirdly. I should probably strip the alpha channel first but I haven't got round to it yet. Most test images are JPEG anyway so it doesn't come up often.
+---
+
+## Phase 9 — Improve UI Layout
+
+### What I tested
+
+Mostly visual stuff — making sure the layout looks right and tabs work properly.
+
+### Tests
+
+| # | What I tried | Type | Expected | Actual | Pass? |
+|---|---|---|---|---|---|
+| 1 | Click through all tabs | Normal | Each tab switches correctly | All tabs work | Yes |
+| 2 | Resize browser window to half width | Boundary | Layout should adapt | Layout squeezed but still usable | Yes |
+| 3 | Open in Firefox | Normal | Should look the same as Chrome | Looked identical | Yes |
+| 4 | Refresh the page mid-training | Erroneous | Shouldn't crash | Training continued in background, page reloaded to default state | Yes |
+
+### Bugs found
+
+**Tabs don't remember which one you were on when you refresh.** If I'm on the Predict tab and refresh the page, it goes back to the Train tab. Not a massive deal but a bit annoying. I looked into it and it seems like Gradio doesn't support preserving tab state across refreshes — it would need URL hash routing or something. Not going to fix this because it's a Gradio limitation rather than a bug in my code.

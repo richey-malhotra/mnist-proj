@@ -120,27 +120,31 @@ with gr.Blocks(title="MNIST Digit Classifier") as demo:
         gr.Markdown("Configure training parameters and train a fresh MLP model")
         
         with gr.Row():
-            epochs_input = gr.Number(
-                label="Epochs",
-                value=3,
-                minimum=1,
-                maximum=20,
-                step=1
-            )
-            batch_size_input = gr.Number(
-                label="Batch Size",
-                value=32,
-                minimum=16,
-                maximum=128,
-                step=16
-            )
-        
-        train_button = gr.Button("Start Training", variant="primary")
-        training_output = gr.Textbox(
-            label="Training Status",
-            lines=8,
-            placeholder="Click 'Start Training' to begin..."
-        )
+            with gr.Column(scale=1):
+                gr.Markdown("**Training Parameters**")
+                epochs_input = gr.Number(
+                    label="Epochs",
+                    value=3,
+                    minimum=1,
+                    maximum=20,
+                    step=1
+                )
+                batch_size_input = gr.Number(
+                    label="Batch Size",
+                    value=32,
+                    minimum=16,
+                    maximum=128,
+                    step=16
+                )
+                train_button = gr.Button("Start Training", variant="primary")
+            
+            with gr.Column(scale=2):
+                gr.Markdown("**Training Results**")
+                training_output = gr.Textbox(
+                    label="Training Status",
+                    lines=10,
+                    placeholder="Click 'Start Training' to begin..."
+                )
         
         train_button.click(
             fn=train_new_model,
@@ -153,12 +157,16 @@ with gr.Blocks(title="MNIST Digit Classifier") as demo:
         gr.Markdown("### Upload Image for Prediction")
         gr.Markdown("Upload a handwritten digit image (will be converted to 28×28 greyscale)")
         
-        image_input = gr.Image(label="Upload Digit Image")
-        predict_button = gr.Button("Predict", variant="primary")
-        prediction_output = gr.Textbox(
-            label="Prediction Result",
-            lines=3
-        )
+        with gr.Row():
+            with gr.Column(scale=1):
+                image_input = gr.Image(label="Upload Digit Image")
+                predict_button = gr.Button("Predict", variant="primary")
+            
+            with gr.Column(scale=1):
+                prediction_output = gr.Textbox(
+                    label="Prediction Result",
+                    lines=5
+                )
         
         predict_button.click(
             fn=predict_uploaded_image,
