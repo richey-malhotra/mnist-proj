@@ -154,3 +154,23 @@ Mostly visual stuff — making sure the layout looks right and tabs work properl
 ### Bugs found
 
 **Tabs don't remember which one you were on when you refresh.** If I'm on the Predict tab and refresh the page, it goes back to the Train tab. Not a massive deal but a bit annoying. I looked into it and it seems like Gradio doesn't support preserving tab state across refreshes — it would need URL hash routing or something. Not going to fix this because it's a Gradio limitation rather than a bug in my code.
+---
+
+## Phase 10 — Live Training Progress
+
+### What I tested
+
+Made sure the training output updates live instead of just freezing until it's done.
+
+### Tests
+
+| # | What I tried | Type | Expected | Actual | Pass? |
+|---|---|---|---|---|---|
+| 1 | Train MLP with 5 epochs | Normal | Progress shows each epoch | Live updates worked, ~1 second between each | Yes |
+| 2 | Train MLP with 1 epoch | Boundary | Should show single line then "Complete" | Worked correctly | Yes |
+| 3 | Click away from Train tab during training | Normal | Training should continue | Training continued, output updated when I switched back | Yes |
+| 4 | Start two trainings at the same time | Erroneous | Might conflict | Second request queued until first finished — Gradio handles this | Yes |
+
+### Bugs found
+
+Nothing new. The streaming output works using Python generators (`yield` instead of `return`) which I didn't know about before. It's quite clever actually — wish I'd known about generators sooner.

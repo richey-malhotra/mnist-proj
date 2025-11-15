@@ -1,39 +1,64 @@
-# Phase 9: Improve UI Layout
+# Phase 10: Show Training Progress
 
 ## What Changed
 
-- Added `gr.Row` and `gr.Column` for side-by-side layout
-- Train tab: parameters on left (narrow), results on right (wide)
-- Predict tab: image upload and results in 50/50 columns
-- Added section headers with `gr.Markdown` for grouping
-- Adjusted textbox line counts for the wider columns
+- Training function now uses `yield` instead of `return` (Python generators)
+- One epoch at a time instead of `model.fit(epochs=N)` all at once
+- Epoch-by-epoch progress visible in the UI
+- Added `verbose=0` to suppress Keras console output
 
-Quick phase - only about 12 lines of actual code change - but the visual difference is massive. Phase 8 had everything stacked in a narrow column down the middle with loads of wasted space either side. Looked rubbish on a wide monitor.
+## The Problem
 
-## Layout System
+Phase 8's training gave you no feedback at all - click "Start Training" and the UI completely freezes for 90 seconds. Set 10 epochs and you're just staring at nothing with no idea whether it's working or crashed. Googled "gradio show progress during function" and found the answer: Python generators.
 
-Found `gr.Row()` and `gr.Column()` in the Gradio docs. Row puts things side-by-side, Column stacks them top-to-bottom inside a Row. It's like a simpler version of CSS Flexbox.
+## How Generators Fix It
 
-The `scale` parameter controls width ratios. For the Train tab I used `scale=1` (controls) and `scale=2` (results) for a one-third / two-thirds split, since the controls are small but the results textbox needs more room. Predict tab is `scale=1` / `scale=1` for 50/50 since the image and prediction need roughly equal room.
+A normal function runs and returns at the end, but yield lets it send back a value and carry on from where it stopped. Gradio detects generator functions automatically, and each `yield` updates the output component immediately. You don't need to set anything up, just swap `return` for `yield` and it works.
 
-So the order goes: Blocks → Tabs → Row → Columns → Components. Had to bump up textbox line counts too because the wider columns made short textboxes look odd with too much horizontal space and not enough vertical.
+The idea of `yield` pausing a function halfway through and then carrying on was new to me. Had to read the Python docs to understand it properly, but once I got it, it was actually pretty easy to add.
 
-## A Placement Mistake
+## The Epoch Loop
 
-Initially put the Train button *outside* the Column's `with` block, so it appeared below both columns instead of in the left one. The `with` block nesting controls where stuff goes - if a component isn't inside a column's context, it ends up outside both columns. Moved it inside the `with gr.Column():` block and it was fine. Easy to get wrong though, especially with multiple levels of nesting.
+Instead of `model.fit(epochs=5)` (trains all at once, no control), I loop manually:
+
+```python
+all_results = []
+for epoch in range(epochs):
+    history = new_model.fit(..., epochs=1, verbose=0)
+    train_acc = history.history['accuracy'][0] * 100
+    all_results.append(f"Epoch {epoch+1}/{epochs}: {train_acc:.2f}%")
+    yield "\n".join(all_results)
+```
+
+Since `epochs=1`, the history arrays have exactly one element, so `[0]` gets that single value.
+
+The **building-up thing** was important. Each `yield` needs to show ALL previous epochs plus the current one, not just the latest. My first version replaced the text each time so you'd see "Epoch 1: 91%" then it would vanish and become "Epoch 2: 94%". Fixed by keeping a running list and joining everything together on each yield.
+
+`verbose=0` suppresses Keras's own progress bars in the terminal. Since we're showing our own messages in the UI, having Keras also printing clutters things up.
 
 ## Testing
 
-Both tabs look properly laid out now. Train tab has controls grouped on the left, results on the right. Predict tab has image upload and output side-by-side, which feels much more natural than stacked. No scrolling needed. The scale ratios took a couple of tries. I just kept changing values until it looked balanced, but it makes sense.
+Trained with 5 epochs. I clicked the button, immediately saw "Starting training..." appear (confirms it's doing something), then after ~15 seconds the first epoch result appeared, then the second, and so on. Watching accuracy climb epoch by epoch is way more informative than just getting a final number. Can actually see if it's improving or plateauing.
 
-I didn't think layout would matter that much since no new features got added. But it looks so much better now.
+Total training time is the same (each epoch still takes about 15 seconds) but it feels completely different when you can see progress.
 
-## Layout Notes
+Only downside: you can't cancel training once it's started. It runs to completion. At least you know it's working, though.
 
-### Scale Values
+## The Tricky Bits
 
-The `scale` parameter works as a ratio, where `scale=1` and `scale=2` gives a one-third / two-thirds split. It doesn't matter what the actual numbers are, just the ratio between them. It resizes with the window too, which is nice.
+### Yielding at Different Points
 
-### Nothing Else Changed
+The generator yields three times basically: once at the start ("Starting training...") so you know the button actually did something, then once after each epoch with the results, and once at the end with a summary after saving. That way the user always has some feedback about what's going on.
 
-This phase was just layout. Same training function, same prediction function, same everything underneath. I just moved stuff around on screen. All the Phase 8 behaviour (including the prediction model not updating) is still the same.
+### Training Also Prints to the Terminal
+
+Each epoch gets both printed to the terminal and yielded to the UI. The terminal output is useful if I'm debugging and want to see what's happening in the terminal while the app runs.
+
+### The Model Only Saves at the End
+
+```python
+# Save model after all epochs (outside the loop)
+save_model(new_model, model_path)
+```
+
+If training gets interrupted halfway through (like closing the browser), the in-progress model is lost because it only saves after all epochs finish. I could save after each epoch but that seemed like overkill for this.

@@ -27,7 +27,7 @@ print("Model loaded successfully!")
 
 
 def train_new_model(epochs, batch_size):
-    """Train a fresh MLP and save it."""
+    """Train a fresh MLP, showing progress each epoch."""
     try:
         # Convert to integers
         epochs = int(epochs)
@@ -36,37 +36,45 @@ def train_new_model(epochs, batch_size):
         # Create new model
         new_model = create_mlp()
         
-        # Train model
-        print(f"Training model with {epochs} epochs, batch size {batch_size}...")
-        history = new_model.fit(
-            x_train, y_train,
-            epochs=epochs,
-            batch_size=batch_size,
-            validation_data=(x_test, y_test),
-            verbose=1
-        )
+        # Initial message
+        yield f"Starting training with {epochs} epochs, batch size {batch_size}...\n\n"
         
-        # Save model
+        # Train one epoch at a time to show progress
+        all_results = []
+        for epoch in range(epochs):
+            print(f"Training epoch {epoch + 1}/{epochs}...")
+            
+            # Train for one epoch
+            history = new_model.fit(
+                x_train, y_train,
+                epochs=1,
+                batch_size=batch_size,
+                validation_data=(x_test, y_test),
+                verbose=0  # Suppress Keras output
+            )
+            
+            # Get accuracy for this epoch
+            train_acc = history.history['accuracy'][0] * 100
+            val_acc = history.history['val_accuracy'][0] * 100
+            
+            # Store results
+            epoch_result = f"Epoch {epoch + 1}/{epochs}: Train Acc = {train_acc:.2f}%, Val Acc = {val_acc:.2f}%"
+            all_results.append(epoch_result)
+            
+            # Yield progress update (shows all previous epochs + current)
+            yield "\n".join(all_results) + "\n\n"
+        
+        # Save model after all epochs
         model_path = 'artifacts/mnist_mlp.keras'
         save_model(new_model, model_path)
         print(f"Model saved to {model_path}")
         
-        # Get final accuracy
-        final_train_acc = history.history['accuracy'][-1] * 100
-        final_val_acc = history.history['val_accuracy'][-1] * 100
-        
-        result = f"""Training Complete!
-
-Final Training Accuracy: {final_train_acc:.2f}%
-Final Validation Accuracy: {final_val_acc:.2f}%
-
-Model saved to: {model_path}
-"""
-        
-        return result
+        # Final summary
+        final_result = "\n".join(all_results) + f"\n\nTraining Complete!\nModel saved to: {model_path}"
+        yield final_result
         
     except Exception as e:
-        return f"Error during training: {str(e)}"
+        yield f"Error during training: {str(e)}"
 
 
 def predict_uploaded_image(image):
