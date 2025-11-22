@@ -1,42 +1,66 @@
-# Phase 10 Development Diary
+# Phase 11 Development Diary
 
-## The Problem
+## What This Phase Is About
 
-Phase 8's training gave you no feedback - hit the train button and the whole page just locks up for 90 seconds with no way of telling if it's working or crashed. If you set 10 epochs you're just staring at nothing for ages. Needed a way to show progress after each epoch.
+Until now, Phase 3's MLP was the only model architecture available. It works fine and gets
+about 97%, but MLPs flatten the image into a long list of pixels and lose where things actually are in the image. A pixel at (10, 15) and one at (10, 16) might be right next to each other, but
+the MLP doesn't know that. CNNs (Convolutional Neural Networks) fix this by using small
+filters that slide across the image and pick up things like edges and curves. I wanted
+to add a Small CNN and a Deeper CNN as options alongside the MLP.
 
-## Discovering Generators
+## Learning About CNNs
 
-The fix was Python generators. Googled "gradio show progress during function" and found that if your function uses `yield` instead of `return`, Gradio automatically treats it as a stream, and each `yield` updates the output component immediately.
+I spent a while reading the Keras docs on Conv2D layers. From what I understand, you set up a bunch of small filters (like 32 of them, each 3×3 pixels) and each filter learns to spot a different pattern in the image. The early layers find basic stuff like edges. If you stack more layers, the later ones start recognising combinations of those edges - curves, loops, that sort of thing. MaxPooling shrinks everything down by keeping only the strongest signal from each small region, which also helps if the digit is slightly off-centre.
 
-Basically a normal function runs and returns at the end, but with yield the function can send back a value and then keep going from where it left off.
+For the Deeper CNN I also added Dropout layers. The idea is you randomly turn off some neurons during each training step - 25% of them after the conv layers and 50% before the final output. It felt wrong at first because you're deliberately making the network worse during training. But apparently it forces the remaining neurons to pick up the slack, so the final model ends up more robust.
 
-Gradio detects this automatically so you don't have to configure anything special. Just change `return` to `yield` and it works. Brilliant.
+## The Reshape Problem
 
-## How I Did It
+This tripped me up for a bit. My first CNN attempt crashed immediately with "expected 4D
+input, got 3D". The MLP takes flat (28, 28) data, but Conv2D needs (28, 28, 1) - that extra
+1 is the channel dimension (1 for greyscale, would be 3 for RGB). Once I understood what
+the error actually meant, the fix was simple: add a Reshape layer at the start of each CNN
+to tack on that channel dimension. Felt obvious afterwards, but the error message on its
+own wasn't immediately clear about what was missing.
 
-The trick is to train one epoch at a time in a loop instead of calling `model.fit(epochs=5)` all at once. Each iteration trains a single epoch with `model.fit(epochs=1)`, grabs the accuracy from `history.history['accuracy'][0]` (just one value since we only did one epoch), and yields a progress message.
+## Building the Architectures and UI
 
-Had a bug initially where each yield *replaced* the previous text. So you'd see "Epoch 1: 91%" then it would change to "Epoch 2: 94%" and Epoch 1 would vanish. Fixed it by keeping a running list and yielding the entire thing joined together each time. Now the output builds up:
-- Yield 1: "Epoch 1/5: Train=91.2%, Val=90.5%"
-- Yield 2: "Epoch 1/5: ... \n Epoch 2/5: Train=94.6%, Val=93.2%"
-- And so on
+I defined `create_small_cnn()` and `create_deeper_cnn()` in models.py alongside the
+existing `create_mlp()`. The Small CNN is pretty minimal: one Conv2D layer (32 filters,
+3×3), one MaxPooling, Flatten, then Dense(64) before the 10-class softmax output. The
+Deeper CNN stacks two Conv2D layers (32 and 64 filters) before pooling, adds Dropout(0.25),
+then Dense(128) with Dropout(0.5) before output. Both start with a Reshape layer for the
+channel dimension.
 
-Also added `verbose=0` to suppress Keras's own training output in the console. We're showing our own messages now, so having Keras print progress bars as well just clutters things up.
+On the Gradio side, I added a `gr.Dropdown` with the three architecture choices and updated
+the training function to accept it as the first parameter, using if/elif to create the right
+model. Had to update the imports too. I initially only had `create_mlp` imported, which gave
+a NameError when trying to call `create_small_cnn()`.
 
 ## Testing
 
-Started the server and trained with 5 epochs. Clicked the button, immediately saw "Starting training..." appear (nice, confirms it's doing something). Then after about 15 seconds the first epoch result appeared. Then the second. Then the third. Watching the accuracy climb epoch by epoch is way more informative than just getting a final number. Can actually see if it's improving or plateauing.
+I ran all three architectures at 3 epochs, batch size 32:
 
-Tried with 3 epochs and 10 epochs too, and it works smoothly. The total time is the same (each epoch still takes 15ish seconds) but it feels completely different when you can see progress.
+| Architecture | Final Val Accuracy | Rough Time per Epoch |
+|---|---|---|
+| MLP | ~97% | ~15s |
+| Small CNN | ~98.5% | ~25s |
+| Deeper CNN | ~99%+ | ~40s |
 
-## What I Learned
+The accuracy gap isn't massive on MNIST but the CNNs are clearly better. The downside is training time - Deeper CNN takes nearly three times as
+long per epoch. I also checked the dropdown returns the actual string ("MLP", not an index),
+which made the if/elif matching straightforward.
 
-Generators are really useful for this. Swapping return for yield meant the function could send updates as it went along. Doing it one epoch at a time means I could add stuff later, like stopping early if accuracy stops going up. And building up all the results instead of just showing the latest one is important so you can see the whole thing.
+## Reflection
 
-The idea of yield stopping a function halfway and then carrying on was new to me. Had to read the Python docs to properly understand it. But once I got it, it was actually pretty easy. Like five extra lines of code and it makes things so much better.
+This was the interesting one. CNNs feel like a proper step up from
+the MLP. The idea that you can stack layers so the first one finds edges and the later ones recognise
+whole digits is genuinely cool. Dropout felt counterintuitive at first (deliberately
+breaking things during training to make the final model better?) but the results clearly show it works.
 
-Simpler than expected once I understood generators. The code's a tiny bit more complicated now but being able to see progress is worth it. No more frozen screens.
+One problem I can already see: all three architectures save to the same model file, so
+training a Deeper CNN just overwrites whatever was there before. Can't actually compare
+models side by side, which defeats the point of having multiple architectures. Phase 12
+should sort that out with proper history tracking.
 
-Only downside is you can't cancel training once it's started - it runs to completion. But at least you know it's working.
-
-About an hour and a bit, most of which was reading about generators.
+Took a couple hours but CNNs were completely new so I actually spent time learning how they work rather than just copying tutorial code.

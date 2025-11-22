@@ -11,7 +11,7 @@ import gradio as gr
 from PIL import Image
 import numpy as np
 from tensorflow.keras.datasets import mnist
-from models import create_mlp, load_model, save_model
+from models import create_mlp, create_small_cnn, create_deeper_cnn, load_model, save_model
 
 # Load MNIST data once at startup
 print("Loading MNIST dataset...")
@@ -26,18 +26,26 @@ model = load_model('artifacts/mnist_mlp.keras')
 print("Model loaded successfully!")
 
 
-def train_new_model(epochs, batch_size):
-    """Train a fresh MLP, showing progress each epoch."""
+def train_new_model(architecture, epochs, batch_size):
+    """Train a model (MLP or CNN) and show progress each epoch."""
     try:
         # Convert to integers
         epochs = int(epochs)
         batch_size = int(batch_size)
         
-        # Create new model
-        new_model = create_mlp()
+        # Create model based on selected architecture
+        if architecture == "MLP":
+            new_model = create_mlp()
+        elif architecture == "Small CNN":
+            new_model = create_small_cnn()
+        elif architecture == "Deeper CNN":
+            new_model = create_deeper_cnn()
+        else:
+            yield f"Error: Unknown architecture '{architecture}'"
+            return
         
         # Initial message
-        yield f"Starting training with {epochs} epochs, batch size {batch_size}...\n\n"
+        yield f"Starting training ({architecture})...\nEpochs: {epochs}, Batch Size: {batch_size}\n\n"
         
         # Train one epoch at a time to show progress
         all_results = []
@@ -125,11 +133,18 @@ with gr.Blocks(title="MNIST Digit Classifier") as demo:
     
     with gr.Tab("Train"):
         gr.Markdown("### Train a New Model")
-        gr.Markdown("Configure training parameters and train a fresh MLP model")
+        gr.Markdown("Configure training parameters and choose architecture")
         
         with gr.Row():
             with gr.Column(scale=1):
                 gr.Markdown("**Training Parameters**")
+                
+                architecture_input = gr.Dropdown(
+                    label="Model Architecture",
+                    choices=["MLP", "Small CNN", "Deeper CNN"],
+                    value="MLP"
+                )
+                
                 epochs_input = gr.Number(
                     label="Epochs",
                     value=3,
@@ -156,7 +171,7 @@ with gr.Blocks(title="MNIST Digit Classifier") as demo:
         
         train_button.click(
             fn=train_new_model,
-            inputs=[epochs_input, batch_size_input],
+            inputs=[architecture_input, epochs_input, batch_size_input],
             outputs=training_output,
             api_name=False  # Disable API to avoid Gradio bug
         )

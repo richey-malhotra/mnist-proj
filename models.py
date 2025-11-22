@@ -1,6 +1,6 @@
 """
 Model architectures for MNIST digit classification.
-Phase 5: Added prediction
+Phase 11: Added CNN architectures
 """
 
 from tensorflow import keras
@@ -14,6 +14,57 @@ def create_mlp():
         layers.Flatten(input_shape=(28, 28)),  # 28×28 → 784
         layers.Dense(128, activation='relu'),   # Hidden layer
         layers.Dense(10, activation='softmax')  # Output (10 digits)
+    ])
+    
+    model.compile(
+        optimizer='adam',
+        loss='sparse_categorical_crossentropy',
+        metrics=['accuracy']
+    )
+    
+    return model
+
+def create_small_cnn():
+    """Create a small CNN — one conv layer + pooling + dense."""
+    model = keras.Sequential([
+        # Reshape for CNN (needs channel dimension)
+        layers.Reshape((28, 28, 1), input_shape=(28, 28)),
+        
+        # Convolutional layer
+        layers.Conv2D(32, kernel_size=(3, 3), activation='relu'),
+        layers.MaxPooling2D(pool_size=(2, 2)),
+        
+        # Flatten and dense layers
+        layers.Flatten(),
+        layers.Dense(64, activation='relu'),
+        layers.Dense(10, activation='softmax')
+    ])
+    
+    model.compile(
+        optimizer='adam',
+        loss='sparse_categorical_crossentropy',
+        metrics=['accuracy']
+    )
+    
+    return model
+
+def create_deeper_cnn():
+    """Bigger CNN with two conv layers and dropout."""
+    model = keras.Sequential([
+        # Reshape for CNN
+        layers.Reshape((28, 28, 1), input_shape=(28, 28)),
+        
+        # Two convolutional layers
+        layers.Conv2D(32, kernel_size=(3, 3), activation='relu'),
+        layers.Conv2D(64, kernel_size=(3, 3), activation='relu'),
+        layers.MaxPooling2D(pool_size=(2, 2)),
+        layers.Dropout(0.25),
+        
+        # Dense layers with dropout
+        layers.Flatten(),
+        layers.Dense(128, activation='relu'),
+        layers.Dropout(0.5),
+        layers.Dense(10, activation='softmax')
     ])
     
     model.compile(

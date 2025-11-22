@@ -1,64 +1,102 @@
-# Phase 10: Show Training Progress
+# Phase 11: Add Different Model Architectures
 
 ## What Changed
 
-- Training function now uses `yield` instead of `return` (Python generators)
-- One epoch at a time instead of `model.fit(epochs=N)` all at once
-- Epoch-by-epoch progress visible in the UI
-- Added `verbose=0` to suppress Keras console output
+- Added `create_small_cnn()` and `create_deeper_cnn()` to `models.py`
+- Architecture dropdown in the Training tab
+- Users can now choose between MLP, Small CNN, or Deeper CNN
+- CNNs use the 2D layout of the image so they get better accuracy
 
-## The Problem
+Until now, only Phase 3's MLP was available. It works fine (~97%) but MLPs flatten the image into a long list of pixels and lose the structure of where things are. A pixel at (10, 15) and one at (10, 16) might be neighbours but the MLP doesn't know that. CNNs fix this with small filters that slide across the image and pick up things like edges and corners.
 
-Phase 8's training gave you no feedback at all - click "Start Training" and the UI completely freezes for 90 seconds. Set 10 epochs and you're just staring at nothing with no idea whether it's working or crashed. Googled "gradio show progress during function" and found the answer: Python generators.
+## Learning About CNNs
 
-## How Generators Fix It
+Spent a while reading the Keras docs on Conv2D. The idea: define a set of filters (say 32) each 3×3 pixels, and each learns to detect a different pattern. First layer picks up edges and corners. Stack a second conv layer on top and it combines those into curves, loops, intersections.
 
-A normal function runs and returns at the end, but yield lets it send back a value and carry on from where it stopped. Gradio detects generator functions automatically, and each `yield` updates the output component immediately. You don't need to set anything up, just swap `return` for `yield` and it works.
+MaxPooling takes 2×2 blocks and keeps the highest value, which shrinks the data and means the network doesn't care as much if the digit is slightly shifted.
 
-The idea of `yield` pausing a function halfway through and then carrying on was new to me. Had to read the Python docs to understand it properly, but once I got it, it was actually pretty easy to add.
+## The Reshape Problem
 
-## The Epoch Loop
+First CNN attempt crashed with "expected 4D input, got 3D". MLP takes flat `(28, 28)` data, but Conv2D needs `(28, 28, 1)` - that extra `1` is the channel dimension (1 for greyscale, 3 for RGB). Fix: add a Reshape layer at the start. Felt obvious afterwards, but the error message wasn't clear about what was missing.
 
-Instead of `model.fit(epochs=5)` (trains all at once, no control), I loop manually:
-
-```python
-all_results = []
-for epoch in range(epochs):
-    history = new_model.fit(..., epochs=1, verbose=0)
-    train_acc = history.history['accuracy'][0] * 100
-    all_results.append(f"Epoch {epoch+1}/{epochs}: {train_acc:.2f}%")
-    yield "\n".join(all_results)
-```
-
-Since `epochs=1`, the history arrays have exactly one element, so `[0]` gets that single value.
-
-The **building-up thing** was important. Each `yield` needs to show ALL previous epochs plus the current one, not just the latest. My first version replaced the text each time so you'd see "Epoch 1: 91%" then it would vanish and become "Epoch 2: 94%". Fixed by keeping a running list and joining everything together on each yield.
-
-`verbose=0` suppresses Keras's own progress bars in the terminal. Since we're showing our own messages in the UI, having Keras also printing clutters things up.
-
-## Testing
-
-Trained with 5 epochs. I clicked the button, immediately saw "Starting training..." appear (confirms it's doing something), then after ~15 seconds the first epoch result appeared, then the second, and so on. Watching accuracy climb epoch by epoch is way more informative than just getting a final number. Can actually see if it's improving or plateauing.
-
-Total training time is the same (each epoch still takes about 15 seconds) but it feels completely different when you can see progress.
-
-Only downside: you can't cancel training once it's started. It runs to completion. At least you know it's working, though.
-
-## The Tricky Bits
-
-### Yielding at Different Points
-
-The generator yields three times basically: once at the start ("Starting training...") so you know the button actually did something, then once after each epoch with the results, and once at the end with a summary after saving. That way the user always has some feedback about what's going on.
-
-### Training Also Prints to the Terminal
-
-Each epoch gets both printed to the terminal and yielded to the UI. The terminal output is useful if I'm debugging and want to see what's happening in the terminal while the app runs.
-
-### The Model Only Saves at the End
+## Small CNN Architecture
 
 ```python
-# Save model after all epochs (outside the loop)
-save_model(new_model, model_path)
+model = keras.Sequential([
+    layers.Reshape((28, 28, 1), input_shape=(28, 28)),
+    layers.Conv2D(32, kernel_size=(3, 3), activation='relu'),
+    layers.MaxPooling2D(pool_size=(2, 2)),
+    layers.Flatten(),
+    layers.Dense(64, activation='relu'),
+    layers.Dense(10, activation='softmax')
+])
 ```
 
-If training gets interrupted halfway through (like closing the browser), the in-progress model is lost because it only saves after all epochs finish. I could save after each epoch but that seemed like overkill for this.
+One conv layer (32 filters), one pooling, then dense layers. Not much to it but it works.
+
+## Deeper CNN Architecture
+
+```python
+model = keras.Sequential([
+    layers.Reshape((28, 28, 1), input_shape=(28, 28)),
+    layers.Conv2D(32, kernel_size=(3, 3), activation='relu'),
+    layers.Conv2D(64, kernel_size=(3, 3), activation='relu'),
+    layers.MaxPooling2D(pool_size=(2, 2)),
+    layers.Dropout(0.25),
+    layers.Flatten(),
+    layers.Dense(128, activation='relu'),
+    layers.Dropout(0.5),
+    layers.Dense(10, activation='softmax')
+])
+```
+
+Two conv layers stacked (32 then 64 filters), plus Dropout(0.25) and Dropout(0.5) layers - a regularisation technique to prevent overfitting. More on this in the section below.
+
+## UI Change
+
+Added `gr.Dropdown` with the three choices. Simple if/elif in the training function creates the right model. Had to update imports too. I initially only had `create_mlp`, which gave a NameError for the CNN functions.
+
+## Testing Results
+
+| Architecture | Val Accuracy | Time per Epoch |
+|---|---|---|
+| MLP | ~97% | ~15s |
+| Small CNN | ~98.5% | ~25s |
+| Deeper CNN | ~99%+ | ~40s |
+
+CNNs are clearly better, but the downside is training time. The Deeper CNN takes nearly 3× as long. The accuracy gap isn't massive on MNIST but I think CNNs would probably make a bigger difference on harder datasets.
+
+## Problem I Haven't Fixed Yet
+
+All three architectures save to the same model file, so training a Deeper CNN overwrites whatever was there. Can't compare models side by side. Phase 12 fixes this with proper history tracking.
+
+## How It Works
+
+### Why 32 Filters and 3×3?
+
+I went with 32 filters because that's what the Keras examples use for MNIST. 3×3 is the most common kernel size. It's small but it still covers the pixels right around each one. The Deeper CNN goes up to 64 filters in the second layer because deeper layers need to recognise more complicated things so they need more filters.
+
+### Dropout
+
+Dropout randomly switches off neurons during training (25% after the convolution layers and 50% before the output layer). It sounds counterproductive but it basically stops the network from relying on any one neuron too much. The accuracy results show it works, even though it feels like it shouldn't.
+
+## File Structure
+
+```
+gradio_phase11/
+├── app_ui.py          # Main application (225 lines, +14 from Phase 10)
+├── models.py          # 3 architectures (170 lines, +77)
+├── requirements.txt   # Dependencies (unchanged)
+└── artifacts/
+    └── mnist_mlp.keras
+```
+
+## Differences from Phase 10
+
+| Aspect | Phase 10 | Phase 11 |
+|--------|----------|----------|
+| **Architectures** | MLP only | MLP, Small CNN, Deeper CNN |
+| **models.py** | 93 lines | 170 lines (+77) |
+| **UI Controls** | Epochs, batch size | + Architecture dropdown |
+| **Model creation** | Always `create_mlp()` | Conditional based on dropdown |
+| **app_ui.py** | 211 lines | 225 lines (+14) |

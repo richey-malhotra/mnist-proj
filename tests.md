@@ -174,3 +174,26 @@ Made sure the training output updates live instead of just freezing until it's d
 ### Bugs found
 
 Nothing new. The streaming output works using Python generators (`yield` instead of `return`) which I didn't know about before. It's quite clever actually — wish I'd known about generators sooner.
+---
+
+## Phase 11 — CNN Models
+
+### What I tested
+
+Added Small CNN and Deeper CNN architectures. Compared accuracy against the MLP.
+
+### Tests
+
+| # | What I tried | Type | Expected | Actual | Pass? |
+|---|---|---|---|---|---|
+| 1 | Train Small CNN, 5 epochs | Normal | Higher accuracy than MLP | 99.0% val accuracy — better than MLP (97.8%) | Yes |
+| 2 | Train Deeper CNN, 5 epochs | Normal | Best accuracy | 99.2% val accuracy — slightly better | Yes |
+| 3 | Select each architecture from dropdown | Normal | All three create and train | All worked | Yes |
+| 4 | Train MLP and CNN back to back | Normal | Both should work in same session | Both trained fine | Yes |
+| 5 | Train Deeper CNN with 20 epochs | Boundary | Should work but take longer | Took about 8 minutes. The Gradio interface showed a timeout warning after 5 minutes but training continued | Partial |
+
+### Bugs found
+
+**Deeper CNN with many epochs is very slow and can cause Gradio timeouts.** Training the deeper CNN for 20 epochs took about 8 minutes and the Gradio interface showed a connection warning (though it reconnected). For now I'm keeping the max epochs at 20 but I might lower it for the deeper CNN specifically. Haven't implemented per-architecture epoch limits yet — would need to change the UI logic.
+
+**Small CNN input shape was wrong initially.** The CNN expects input shape (28, 28, 1) but I was passing (28, 28). Had to add `np.expand_dims` to reshape the data. Easy fix once I saw the error message.
