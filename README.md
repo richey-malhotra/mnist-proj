@@ -1,102 +1,101 @@
-# Phase 11: Add Different Model Architectures
+# Phase 12: Database Schema + Training History Tab
 
 ## What Changed
 
-- Added `create_small_cnn()` and `create_deeper_cnn()` to `models.py`
-- Architecture dropdown in the Training tab
-- Users can now choose between MLP, Small CNN, or Deeper CNN
-- CNNs use the 2D layout of the image so they get better accuracy
+- Created `init_db.py` with SQLite database schema (two tables)
+- Each model now saves with a unique filename, so no more overwriting
+- Added History tab showing all previous training sessions
+- New functions: `save_training_run()` and `get_training_history()`
 
-Until now, only Phase 3's MLP was available. It works fine (~97%) but MLPs flatten the image into a long list of pixels and lose the structure of where things are. A pixel at (10, 15) and one at (10, 16) might be neighbours but the MLP doesn't know that. CNNs fix this with small filters that slide across the image and pick up things like edges and corners.
+Phase 11 left an annoying limitation: every time you train, the new model overwrites the old file. Train an MLP, then a CNN - the MLP is gone. This phase fixes that with a proper database.
 
-## Learning About CNNs
+## Why SQLite
 
-Spent a while reading the Keras docs on Conv2D. The idea: define a set of filters (say 32) each 3×3 pixels, and each learns to detect a different pattern. First layer picks up edges and corners. Stack a second conv layer on top and it combines those into curves, loops, intersections.
+I looked at a few options. First thought was JSON - which stands for JavaScript Object Notation, which is a confusing name because I think it's based on JavaScript syntax but everyone uses it for everything now, it's just a way of storing data in a text file with curly braces and key-value pairs. It's readable and simple but you'd have to load the whole file every time you want to add something, and searching through it would be a pain. CSV was another option but felt too flat for what I needed. Looked at PostgreSQL but that needs a whole server running. SQLite won because it's built into Python (no `pip install` needed), stores everything in a single `.db` file, and you don't need to set up a server or worry about passwords or anything. It's literally just a file in the artifacts folder.
 
-MaxPooling takes 2×2 blocks and keeps the highest value, which shrinks the data and means the network doesn't care as much if the digit is slightly shifted.
+## Database Design
 
-## The Reshape Problem
+Two tables: `models` tracks which architectures exist, `training_runs` stores each individual run:
 
-First CNN attempt crashed with "expected 4D input, got 3D". MLP takes flat `(28, 28)` data, but Conv2D needs `(28, 28, 1)` - that extra `1` is the channel dimension (1 for greyscale, 3 for RGB). Fix: add a Reshape layer at the start. Felt obvious afterwards, but the error message wasn't clear about what was missing.
+```sql
+CREATE TABLE models (
+    model_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    architecture TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 
-## Small CNN Architecture
-
-```python
-model = keras.Sequential([
-    layers.Reshape((28, 28, 1), input_shape=(28, 28)),
-    layers.Conv2D(32, kernel_size=(3, 3), activation='relu'),
-    layers.MaxPooling2D(pool_size=(2, 2)),
-    layers.Flatten(),
-    layers.Dense(64, activation='relu'),
-    layers.Dense(10, activation='softmax')
-])
+CREATE TABLE training_runs (
+    run_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    model_id INTEGER,
+    epochs INTEGER,
+    batch_size INTEGER,
+    val_accuracy REAL,
+    model_filename TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (model_id) REFERENCES models(model_id)
+);
 ```
 
-One conv layer (32 filters), one pooling, then dense layers. Not much to it but it works.
+There's a foreign key linking runs to models. I don't actually use JOINs to query though. I just do two separate queries. For maybe 20-30 training runs total the speed difference is basically nothing. I'd rather keep it simple and have SQL I can actually understand.
 
-## Deeper CNN Architecture
+## Unique Filenames with MAX(run_id)+1
+
+Instead of everything saving to the same file, each run now gets a unique name like `model_small_cnn_run3.keras`. I needed the run ID *before* inserting to build the filename, so I query `SELECT MAX(run_id) FROM training_runs` and add 1 (defaulting to 1 when there's nothing yet). Architecture names also get tidied up: spaces become underscores, everything lowercase. So "Deeper CNN" becomes `model_deeper_cnn_run3.keras`.
+
+## The Empty DataFrame Problem
+
+When there are zero training runs, `get_training_history()` returns an empty DataFrame. Gradio's `gr.Dataframe` component doesn't handle empty DataFrames well - it shows mangled column names or just looks broken. Had to make sure the column names were explicitly set even when the list of rows is empty.
+
+## History Tab
+
+Simple setup: a Refresh button and a `gr.Dataframe` component. Click refresh and it queries the database and displays every run with its architecture, epochs, batch size, accuracy (as percentage), filename, and timestamp. Ordered newest-first. I went with a manual refresh instead of auto-loading when you switch tabs, which is simpler and means I'm not reading the database for no reason.
+
+## Decisions
+
+### `CREATE TABLE IF NOT EXISTS`
+
+This means I can run `init_db.py` multiple times without it crashing or deleting existing data. Without the `IF NOT EXISTS` bit, running it twice would throw an error saying the table already exists.
+
+### Why Not JOINs?
+
+For the history display, I need to show the architecture name alongside each run, but `training_runs` only stores a `model_id` number. You're supposed to use a JOIN across both tables, but I just loop through the runs and do a separate query for each one to get the name. It's less efficient but for maybe 20-30 training runs the difference is basically nothing, and the SQL is way easier to follow.
+
+### Using `?` Placeholders
 
 ```python
-model = keras.Sequential([
-    layers.Reshape((28, 28, 1), input_shape=(28, 28)),
-    layers.Conv2D(32, kernel_size=(3, 3), activation='relu'),
-    layers.Conv2D(64, kernel_size=(3, 3), activation='relu'),
-    layers.MaxPooling2D(pool_size=(2, 2)),
-    layers.Dropout(0.25),
-    layers.Flatten(),
-    layers.Dense(128, activation='relu'),
-    layers.Dropout(0.5),
-    layers.Dense(10, activation='softmax')
-])
+cursor.execute('SELECT model_id FROM models WHERE architecture = ?', (architecture,))
 ```
 
-Two conv layers stacked (32 then 64 filters), plus Dropout(0.25) and Dropout(0.5) layers - a regularisation technique to prevent overfitting. More on this in the section below.
-
-## UI Change
-
-Added `gr.Dropdown` with the three choices. Simple if/elif in the training function creates the right model. Had to update imports too. I initially only had `create_mlp`, which gave a NameError for the CNN functions.
-
-## Testing Results
-
-| Architecture | Val Accuracy | Time per Epoch |
-|---|---|---|
-| MLP | ~97% | ~15s |
-| Small CNN | ~98.5% | ~25s |
-| Deeper CNN | ~99%+ | ~40s |
-
-CNNs are clearly better, but the downside is training time. The Deeper CNN takes nearly 3× as long. The accuracy gap isn't massive on MNIST but I think CNNs would probably make a bigger difference on harder datasets.
-
-## Problem I Haven't Fixed Yet
-
-All three architectures save to the same model file, so training a Deeper CNN overwrites whatever was there. Can't compare models side by side. Phase 12 fixes this with proper history tracking.
-
-## How It Works
-
-### Why 32 Filters and 3×3?
-
-I went with 32 filters because that's what the Keras examples use for MNIST. 3×3 is the most common kernel size. It's small but it still covers the pixels right around each one. The Deeper CNN goes up to 64 filters in the second layer because deeper layers need to recognise more complicated things so they need more filters.
-
-### Dropout
-
-Dropout randomly switches off neurons during training (25% after the convolution layers and 50% before the output layer). It sounds counterproductive but it basically stops the network from relying on any one neuron too much. The accuracy results show it works, even though it feels like it shouldn't.
+I used `?` placeholders instead of putting values directly into the SQL string. This stops someone from being able to mess with the database by entering weird text as an architecture name. Probably not a huge risk since the input comes from a dropdown, but we learned about SQL injection in class so I did it properly.
 
 ## File Structure
 
 ```
-gradio_phase11/
-├── app_ui.py          # Main application (225 lines, +14 from Phase 10)
-├── models.py          # 3 architectures (170 lines, +77)
+gradio_phase12/
+├── app_ui.py          # Main application (331 lines, +104 from Phase 11)
+├── init_db.py         # Database initialisation script (49 lines, NEW)
+├── models.py          # 3 architectures (unchanged from Phase 11)
 ├── requirements.txt   # Dependencies (unchanged)
 └── artifacts/
-    └── mnist_mlp.keras
+    ├── training_history.db
+    └── model_{arch}_run{id}.keras
 ```
 
-## Differences from Phase 10
+## How to Run
 
-| Aspect | Phase 10 | Phase 11 |
+```bash
+python init_db.py      # First time only, creates database
+python app_ui.py
+```
+
+## Differences from Phase 11
+
+| Aspect | Phase 11 | Phase 12 |
 |--------|----------|----------|
-| **Architectures** | MLP only | MLP, Small CNN, Deeper CNN |
-| **models.py** | 93 lines | 170 lines (+77) |
-| **UI Controls** | Epochs, batch size | + Architecture dropdown |
-| **Model creation** | Always `create_mlp()` | Conditional based on dropdown |
-| **app_ui.py** | 211 lines | 225 lines (+14) |
+| **Model saving** | Overwrites same file | Unique filename per run |
+| **Filename** | `mnist_mlp.keras` | `model_{arch}_run{id}.keras` |
+| **History tracking** | None | SQLite database |
+| **Tabs** | Train, Predict | Train, Predict, History |
+| **Database** | None | 2 tables (models, training_runs) |
+| **New files** | - | `init_db.py` |
+| **app_ui.py** | 225 lines | 331 lines (+104) |

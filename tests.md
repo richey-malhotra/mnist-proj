@@ -197,3 +197,26 @@ Added Small CNN and Deeper CNN architectures. Compared accuracy against the MLP.
 **Deeper CNN with many epochs is very slow and can cause Gradio timeouts.** Training the deeper CNN for 20 epochs took about 8 minutes and the Gradio interface showed a connection warning (though it reconnected). For now I'm keeping the max epochs at 20 but I might lower it for the deeper CNN specifically. Haven't implemented per-architecture epoch limits yet — would need to change the UI logic.
 
 **Small CNN input shape was wrong initially.** The CNN expects input shape (28, 28, 1) but I was passing (28, 28). Had to add `np.expand_dims` to reshape the data. Easy fix once I saw the error message.
+---
+
+## Phase 12 — SQLite Database
+
+### What I tested
+
+Set up the database schema and made sure training runs get saved and retrieved properly.
+
+### Tests
+
+| # | What I tried | Type | Expected | Actual | Pass? |
+|---|---|---|---|---|---|
+| 1 | Run init_db.py to create tables | Normal | Database file created | Created artifacts/training_history.db (8KB) | Yes |
+| 2 | Train a model, check it saved to DB | Normal | New row in training_runs | Row appeared with correct data | Yes |
+| 3 | Train 3 models, query all runs | Normal | 3 rows returned | Got all 3 with correct architectures | Yes |
+| 4 | Delete the .db file and re-run init_db.py | Boundary | Fresh database created | Worked fine, empty tables | Yes |
+| 5 | Check what happens if DB doesn't exist when training | Erroneous | Should crash or create it | Crashed with "no such table" — need to run init_db.py first | Expected |
+
+### Bugs found
+
+**Database doesn't auto-create.** If you haven't run init_db.py and try to train, it crashes because the tables don't exist. I should probably add a check at startup that creates the tables if they're missing, but for now the README tells you to run init_db.py first. It's a bit hacky but it works.
+
+**Timestamps are stored as strings not proper datetime objects.** SQLite doesn't have a native datetime type so I'm storing them as ISO format strings. Sorting by date works because ISO format is lexicographically sortable, but it's not ideal. Leaving it for now since it works.

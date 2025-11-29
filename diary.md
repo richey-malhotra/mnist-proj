@@ -1,66 +1,72 @@
-# Phase 11 Development Diary
+# Phase 12 Development Diary
 
-## What This Phase Is About
+## Overview
 
-Until now, Phase 3's MLP was the only model architecture available. It works fine and gets
-about 97%, but MLPs flatten the image into a long list of pixels and lose where things actually are in the image. A pixel at (10, 15) and one at (10, 16) might be right next to each other, but
-the MLP doesn't know that. CNNs (Convolutional Neural Networks) fix this by using small
-filters that slide across the image and pick up things like edges and curves. I wanted
-to add a Small CNN and a Deeper CNN as options alongside the MLP.
+Phase 11 kept overwriting the same model file every time you trained, which was really
+annoying - you'd train a nice Deeper CNN and then accidentally lose it by training an MLP
+straight after. This phase adds a SQLite database so every training run is saved separately,
+and a History tab so you can actually look back at what you've done.
 
-## Learning About CNNs
+## Why SQLite
 
-I spent a while reading the Keras docs on Conv2D layers. From what I understand, you set up a bunch of small filters (like 32 of them, each 3×3 pixels) and each filter learns to spot a different pattern in the image. The early layers find basic stuff like edges. If you stack more layers, the later ones start recognising combinations of those edges - curves, loops, that sort of thing. MaxPooling shrinks everything down by keeping only the strongest signal from each small region, which also helps if the digit is slightly off-centre.
+Had to decide how to store the training data. My first idea was JSON files - had to Google what that actually stands for and apparently it's "JavaScript Object Notation" which I think means it was originally based on JavaScript syntax, but everyone uses it now regardless. From what I can tell it's basically just a text file with curly braces and stuff like `{"name": "value"}`. It's human-readable which is nice but you'd have to read the whole file in, add your new data, and write the whole thing back out every time. Felt clunky. CSV crossed my mind too but it's too flat for nested data.
 
-For the Deeper CNN I also added Dropout layers. The idea is you randomly turn off some neurons during each training step - 25% of them after the conv layers and 50% before the final output. It felt wrong at first because you're deliberately making the network worse during training. But apparently it forces the remaining neurons to pick up the slack, so the final model ends up more robust.
+Ended up going with SQLite because it doesn't need a server - it's literally just a `.db` file in the artifacts folder. I designed two tables: `models` (architecture names where the ID auto-increments, meaning the database picks the next number automatically so I don't have to keep track of what number comes next) and `training_runs` (each session's epochs, batch size, accuracy, filename, and
+timestamp). There's a foreign key linking them - that basically means training_runs has a column called model_id that has to match a real model_id from the models table. So you can't accidentally save a run for a model that doesn't exist, the database would reject it. I'm not actually using it with JOINs but it keeps the data consistent.
 
-## The Reshape Problem
+## Saving Runs and Unique Filenames
 
-This tripped me up for a bit. My first CNN attempt crashed immediately with "expected 4D
-input, got 3D". The MLP takes flat (28, 28) data, but Conv2D needs (28, 28, 1) - that extra
-1 is the channel dimension (1 for greyscale, would be 3 for RGB). Once I understood what
-the error actually meant, the fix was simple: add a Reshape layer at the start of each CNN
-to tack on that channel dimension. Felt obvious afterwards, but the error message on its
-own wasn't immediately clear about what was missing.
+Instead of everything saving to `mnist_mlp.keras`, each run now gets a unique name like
+`model_small_cnn_run3.keras`. I had to work out the run ID before inserting, since
+AUTOINCREMENT only gives you the ID after the INSERT. I query `MAX(run_id)` and add 1,
+defaulting to 1 when NULL. The architecture name also gets cleaned for the filename:
+spaces to underscores, lowercased.
 
-## Building the Architectures and UI
+That defaulting bit is a one-liner: `next_run_id = 1 if max_run is None else max_run + 1`. Basically an if/else squashed onto one line. Saw it in someone's code on Stack Overflow and it took a second to read but it's just saying "use 1 if there's nothing there yet, otherwise add 1 to the current max". Also figured out you can do `f"{accuracy:.2f}%"` to show a number with exactly 2 decimal places - the `:.2f` bit after the colon controls the formatting. Way better than getting something like 97.23456789 spat out.
 
-I defined `create_small_cnn()` and `create_deeper_cnn()` in models.py alongside the
-existing `create_mlp()`. The Small CNN is pretty minimal: one Conv2D layer (32 filters,
-3×3), one MaxPooling, Flatten, then Dense(64) before the 10-class softmax output. The
-Deeper CNN stacks two Conv2D layers (32 and 64 filters) before pooling, adds Dropout(0.25),
-then Dense(128) with Dropout(0.5) before output. Both start with a Reshape layer for the
-channel dimension.
+The `save_training_run()` function handles all the steps - finding the model_id,
+generate the next run_id, build the filename, INSERT into training_runs, and return the
+filename. I updated `train_new_model()` to capture the final validation accuracy and pass
+it through after training completes.
 
-On the Gradio side, I added a `gr.Dropdown` with the three architecture choices and updated
-the training function to accept it as the first parameter, using if/elif to create the right
-model. Had to update the imports too. I initially only had `create_mlp` imported, which gave
-a NameError when trying to call `create_small_cnn()`.
+One thing I read is you should never stick values straight into SQL strings because of something called SQL injection - basically someone could type crafted input that breaks out of the query and runs their own commands on the database. The fix is `?` placeholders, like `cursor.execute("INSERT INTO ... VALUES (?, ?, ?)", (val1, val2, val3))` which means the database treats the values as data, not as SQL. Probably doesn't matter much for a local app where I'm the only user, but the `?` syntax is actually neater than building strings with f-strings anyway so I went with it.
+
+## Gitignoring the Database
+
+Same as the model files from Phase 4, I added the database file to .gitignore as well. It's a binary file that changes every time you train, so there's no point tracking it in git. Anyone cloning the project just runs `python init_db.py` to create a fresh database and then trains their own models. The schema is in init_db.py so the table setup code is always in git even if the actual data isn't.
+
+## Querying Without JOINs
+
+For the history display, I needed to show the architecture name alongside each run, but
+training_runs only stores a model_id number. You're supposed to use a LEFT JOIN
+across both tables, but I kept it simpler. I loop through the training runs and do a
+separate SELECT on the models table for each one to get the architecture name.
+
+It's less efficient, but for a dataset of a few dozen runs at most, the speed difference really doesn't matter. I'd rather keep it simple and have SQL I can actually understand.
+
+## History Tab
+
+I added a third tab with a Refresh button and a read-only `gr.Dataframe`. Clicking Refresh
+queries the database, builds something called a pandas DataFrame. First time using pandas - it's a Python library for working with tables of data, had to add it to requirements.txt. A DataFrame is basically a table with rows and named columns, and Gradio's `gr.Dataframe` component can display one directly which is handy. Set up columns like "Run ID", "Architecture",
+"Accuracy (%)", and displays it newest-first. I went with a manual refresh rather than
+auto-loading on tab switch, which is simpler and means I'm not hitting the database for no reason.
+
+One problem: an empty DataFrame with no columns looks broken in the UI. Had to pass explicit
+column names even when there are no runs yet.
 
 ## Testing
 
-I ran all three architectures at 3 epochs, batch size 32:
-
-| Architecture | Final Val Accuracy | Rough Time per Epoch |
-|---|---|---|
-| MLP | ~97% | ~15s |
-| Small CNN | ~98.5% | ~25s |
-| Deeper CNN | ~99%+ | ~40s |
-
-The accuracy gap isn't massive on MNIST but the CNNs are clearly better. The downside is training time - Deeper CNN takes nearly three times as
-long per epoch. I also checked the dropdown returns the actual string ("MLP", not an index),
-which made the if/elif matching straightforward.
+Trained an MLP and a Small CNN (3 epochs each), checking the database after each with the
+sqlite3 command line. Both appeared with correct accuracy, unique filenames, and the .keras
+files existed in artifacts. The History tab showed both runs newest-first with correct data.
+Trained a Deeper CNN and refreshed to confirm it kept accumulating properly.
 
 ## Reflection
 
-This was the interesting one. CNNs feel like a proper step up from
-the MLP. The idea that you can stack layers so the first one finds edges and the later ones recognise
-whole digits is genuinely cool. Dropout felt counterintuitive at first (deliberately
-breaking things during training to make the final model better?) but the results clearly show it works.
+This isn't the most exciting phase - database stuff isn't as interesting as Phase 11's
+CNNs - but it's actually useful. Being able to look back at all your training runs and see which settings worked best is really useful. And no more
+accidentally losing a good model by overwriting it.
 
-One problem I can already see: all three architectures save to the same model file, so
-training a Deeper CNN just overwrites whatever was there before. Can't actually compare
-models side by side, which defeats the point of having multiple architectures. Phase 12
-should sort that out with proper history tracking.
-
-Took a couple hours but CNNs were completely new so I actually spent time learning how they work rather than just copying tutorial code.
+I know avoiding JOINs isn't how you'd do it properly, but it was simpler
+and it works fine here. If this ever needed to handle thousands of runs I'd switch to a
+JOIN, but realistically we're talking about maybe 20-30 training runs total.

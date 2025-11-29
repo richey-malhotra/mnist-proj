@@ -1,6 +1,6 @@
 """
 MNIST Digit Recognition Project
-Phase 8: Add Training Tab
+Phase 12: Database Schema + Training History Tab
 """
 
 import warnings
@@ -10,6 +10,9 @@ warnings.filterwarnings('ignore', message='urllib3 v2 only supports OpenSSL')
 import gradio as gr
 from PIL import Image
 import numpy as np
+import sqlite3
+import pandas as pd
+from datetime import datetime
 from tensorflow.keras.datasets import mnist
 from models import create_mlp, create_small_cnn, create_deeper_cnn, load_model, save_model
 
@@ -24,6 +27,88 @@ print(f"Dataset loaded: {x_train.shape[0]} training images, {x_test.shape[0]} te
 print("Loading trained model...")
 model = load_model('artifacts/mnist_mlp.keras')
 print("Model loaded successfully!")
+
+
+def save_training_run(architecture, epochs, batch_size, val_accuracy):
+    """Save training run to database with unique filename."""
+    conn = sqlite3.connect('artifacts/training_history.db')
+    cursor = conn.cursor()
+    
+    # Get or create model_id for this architecture
+    cursor.execute('SELECT model_id FROM models WHERE architecture = ?', (architecture,))
+    result = cursor.fetchone()
+    
+    if result:
+        model_id = result[0]
+    else:
+        # Insert new architecture
+        cursor.execute('INSERT INTO models (architecture) VALUES (?)', (architecture,))
+        model_id = cursor.lastrowid
+    
+    # Get next run_id to create unique filename
+    cursor.execute('SELECT MAX(run_id) FROM training_runs')
+    max_run = cursor.fetchone()[0]
+    next_run_id = 1 if max_run is None else max_run + 1
+    
+    # Create unique filename
+    arch_clean = architecture.lower().replace(' ', '_')
+    model_filename = f'model_{arch_clean}_run{next_run_id}.keras'
+    
+    # Insert training run
+    cursor.execute('''
+        INSERT INTO training_runs 
+        (model_id, epochs, batch_size, val_accuracy, model_filename)
+        VALUES (?, ?, ?, ?, ?)
+    ''', (model_id, epochs, batch_size, val_accuracy, model_filename))
+    
+    conn.commit()
+    conn.close()
+    
+    return model_filename
+
+
+def get_training_history():
+    """Get all training runs for display in History tab."""
+    conn = sqlite3.connect('artifacts/training_history.db')
+    cursor = conn.cursor()
+    
+    # Get all runs ordered by most recent first
+    cursor.execute('''
+        SELECT run_id, model_id, epochs, batch_size, val_accuracy, model_filename, created_at
+        FROM training_runs
+        ORDER BY run_id DESC
+    ''')
+    
+    runs = cursor.fetchall()
+    
+    if not runs:
+        conn.close()
+        return pd.DataFrame(columns=['Run ID', 'Architecture', 'Epochs', 'Batch Size', 'Accuracy (%)', 'Filename', 'Timestamp'])
+    
+    # Build list with architecture names (separate query for each - no JOIN)
+    data = []
+    for run_id, model_id, epochs, batch_size, val_accuracy, model_filename, created_at in runs:
+        # Look up architecture for this model_id
+        cursor.execute('SELECT architecture FROM models WHERE model_id = ?', (model_id,))
+        result = cursor.fetchone()
+        arch = result[0] if result else 'Unknown'
+        
+        data.append({
+            'Run ID': run_id,
+            'Architecture': arch,
+            'Epochs': epochs,
+            'Batch Size': batch_size,
+            'Accuracy (%)': round(val_accuracy * 100, 2),
+            'Filename': model_filename,
+            'Timestamp': created_at
+        })
+    
+    conn.close()
+    
+    # Convert to DataFrame
+    df = pd.DataFrame(data)
+    
+    return df
 
 
 def train_new_model(architecture, epochs, batch_size):
@@ -64,6 +149,7 @@ def train_new_model(architecture, epochs, batch_size):
             # Get accuracy for this epoch
             train_acc = history.history['accuracy'][0] * 100
             val_acc = history.history['val_accuracy'][0] * 100
+            final_val_acc = history.history['val_accuracy'][0]  # Store for database
             
             # Store results
             epoch_result = f"Epoch {epoch + 1}/{epochs}: Train Acc = {train_acc:.2f}%, Val Acc = {val_acc:.2f}%"
@@ -72,13 +158,14 @@ def train_new_model(architecture, epochs, batch_size):
             # Yield progress update (shows all previous epochs + current)
             yield "\n".join(all_results) + "\n\n"
         
-        # Save model after all epochs
-        model_path = 'artifacts/mnist_mlp.keras'
+        # Save to database with unique filename
+        model_filename = save_training_run(architecture, epochs, batch_size, final_val_acc)
+        model_path = f'artifacts/{model_filename}'
         save_model(new_model, model_path)
         print(f"Model saved to {model_path}")
         
         # Final summary
-        final_result = "\n".join(all_results) + f"\n\nTraining Complete!\nModel saved to: {model_path}"
+        final_result = "\n".join(all_results) + f"\n\nTraining Complete!\nModel saved to: {model_path}\nSaved to database with Run ID"
         yield final_result
         
     except Exception as e:
@@ -197,11 +284,34 @@ with gr.Blocks(title="MNIST Digit Classifier") as demo:
             outputs=prediction_output,
             api_name=False  # Disable API to avoid Gradio bug
         )
+    
+    with gr.Tab("History"):
+        gr.Markdown("### Training History")
+        gr.Markdown("View all previous training runs and their results")
+        
+        refresh_button = gr.Button("Refresh History", variant="secondary")
+        
+        # Start with empty DataFrame with the right column names
+        empty_df = pd.DataFrame(columns=['Run ID', 'Architecture', 'Epochs', 'Batch Size', 'Accuracy (%)', 'Filename', 'Timestamp'])
+        
+        history_table = gr.Dataframe(
+            label="All Training Runs",
+            value=empty_df,
+            interactive=False
+        )
+        
+        # Load history on button click
+        refresh_button.click(
+            fn=get_training_history,
+            outputs=history_table,
+            api_name=False
+        )
 
 
 if __name__ == "__main__":
     print("\nStarting MNIST Classifier interface...")
     print("- Train tab: Configure and train new models")
     print("- Predict tab: Upload images for digit recognition")
+    print("- History tab: View all training runs")
     print("\nOpen http://localhost:7860 in your browser\n")
     demo.launch()
