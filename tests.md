@@ -220,3 +220,29 @@ Set up the database schema and made sure training runs get saved and retrieved p
 **Database doesn't auto-create.** If you haven't run init_db.py and try to train, it crashes because the tables don't exist. I should probably add a check at startup that creates the tables if they're missing, but for now the README tells you to run init_db.py first. It's a bit hacky but it works.
 
 **Timestamps are stored as strings not proper datetime objects.** SQLite doesn't have a native datetime type so I'm storing them as ISO format strings. Sorting by date works because ISO format is lexicographically sortable, but it's not ideal. Leaving it for now since it works.
+---
+
+## Phase 13 — Training History Tab
+
+### What I tested
+
+The History tab shows all past training runs in a table format.
+
+### Tests
+
+| # | What I tried | Type | Expected | Actual | Pass? |
+|---|---|---|---|---|---|
+| 1 | Click History tab after training 3 models | Normal | Table shows 3 runs | All 3 appeared with correct data | Yes |
+| 2 | Click Refresh after training another model | Normal | New run appears | It appeared at the top (sorted by most recent) | Yes |
+| 3 | History with no training runs | Boundary | Empty table or message | Shows empty DataFrame with column headers — not ideal but not broken | Yes |
+| 4 | Check accuracy displays as percentage | Normal | e.g. 97.8% | Displayed correctly | Yes |
+
+### Screenshots
+
+![Training history table with 3 runs](screenshots/phase13_history_table.png)
+
+### Bugs found
+
+**History doesn't auto-refresh after training.** You have to manually click the History tab and hit Refresh to see new runs. Ideally it should update automatically when training finishes, but I can't figure out how to trigger a component update in a different tab from the training function in Gradio. This is a known usability issue that I'm leaving as-is.
+
+**Empty state looks weird.** When there are no training runs, the table shows an empty DataFrame with just column headers. Should really show a message like "No training runs yet" but the Gradio Dataframe component doesn't support placeholder text easily.
