@@ -1,25 +1,27 @@
-# Phase 13 Development Diary
+# Phase 13 (Part 2) Development Diary
 
-## What This Phase Was
+## Overview
 
-Not a lot of new code here. Phase 12 built the database and the History tab, and this phase was about actually testing it properly. I'd only tested with one training run before, so I wanted to make sure it works when you train multiple different architectures and the data accumulates correctly.
+Quick phase. I was about to start Phase 14 (multi-model comparison) and realised it's going to need the exact same image preprocessing that's already in `predict_uploaded_image()` — about 15 lines of converting uploads to 28×28 greyscale normalised arrays. I was literally about to copy-paste the whole block into a new function when I thought... that's going to be really annoying if I ever need to fix a bug in it, because I'd have to remember to change it in both places.
 
-## Testing the History Tab
+## What Actually Happened
 
-Trained one of each architecture (MLP, Small CNN, Deeper CNN) with 3 epochs each. After each training run, went to the History tab and clicked Refresh. Everything showed up right: architecture name matches what I picked, epochs and batch size are correct, accuracy is displayed as a percentage, and each model got its own unique filename.
+Selected the preprocessing block in VS Code to copy it, and this little lightbulb icon popped up in the margin. Clicked it and one of the options said "Extract method". Tried it out of curiosity — it pulled the selected code into its own function automatically and replaced the original block with a single function call. That's basically what I was going to do manually, just VS Code did it in about 2 seconds.
 
-The ordering is newest-first, which makes sense. You want to see your most recent run at the top.
+Ended up not using the auto-generated version though, because I wanted the function in a separate file rather than just sitting at the top of `app_ui.py`. Created `utils.py` instead. Called it that because I noticed a few Python projects on GitHub use the name "utils" for shared helper functions — short for "utilities". So `models.py` has architecture definitions, `utils.py` has shared helpers, and `app_ui.py` has the UI logic.
 
-## Empty State
+Googled "extract method python" afterwards cos I was curious what VS Code was actually doing, and apparently this whole thing of reorganising your code without changing what it does is called "refactoring". There's a proper name for it and everything. Makes sense I suppose — you're not adding features, you're just reshaping the existing code so it's tidier. Feels like the kind of thing that sounds more impressive than it is though. I literally just moved some lines into a different file.
 
-Deleted the database file and relaunched the app. The History tab shows the column headers but no data rows, which looks fine. No crashes, no weird error messages. When I trained a model and refreshed, it appeared immediately.
+## PIL Type Issue
 
-## Small Things I Noticed
+Only real snag was a PIL type thing. My first version just did `Image.fromarray(image)` directly, but Gradio can pass float32 arrays and PIL's `fromarray` expects uint8. Got a `ValueError` about unhandled data types. The fix was adding type checks — convert to uint8 first if needed, handle both RGB and greyscale inputs, then do the conversion and resize. Three lines of type-checking to avoid crashes on dodgy input.
 
-The timestamps show the full format (date and time down to the second) which is a lot of detail for something where you probably just care about "which run was this". Not going to change it now but if I had time I'd make it show something simpler.
+## Testing
 
-The manual Refresh button is a deliberate choice. I could have it auto-refresh when you switch tabs but that means hitting the database every time someone clicks around, which seemed wasteful. This way it only queries when you actually want to see the data.
+Uploaded a test digit and got the same prediction and confidence as before. Trained a model to make sure that path still works, checked the History tab. Everything working exactly the same, so moving the code didn't break anything. If I've done it right, nobody using the app should notice any difference — and they don't.
 
-Short phase but worth doing. It's easy to build something and assume it works without properly testing the different states (empty, one run, multiple runs). Everything checked out. 
+## Reflection
 
-About 40 minutes, mostly just waiting for models to train.
+This is the kind of change where nothing looks different to the user but the code is better organised. Phase 14 will need `preprocess_image()` for running predictions across multiple saved models, so pulling it out now saves copy-pasting later. If there's ever a bug in the preprocessing, I only have to fix it in one place.
+
+Knocked this out in under an hour. Probably the fastest phase so far — the actual coding was maybe 20 minutes, the rest was testing to make sure nothing broke. The VS Code lightbulb thing was a nice find though. Might look into what other stuff it can do.

@@ -15,6 +15,7 @@ import pandas as pd
 from datetime import datetime
 from tensorflow.keras.datasets import mnist
 from models import create_mlp, create_small_cnn, create_deeper_cnn, load_model, save_model
+from utils import preprocess_image
 
 # Load MNIST data once at startup
 print("Loading MNIST dataset...")
@@ -178,21 +179,8 @@ def predict_uploaded_image(image):
         return "Please upload an image."
     
     try:
-        # Gradio passes numpy array by default
-        # Normalise to 0-1 range (convert to greyscale if needed)
-        if len(image.shape) == 3:
-            # Color image - convert to greyscale
-            img_array = np.mean(image, axis=2).astype('float32')
-        else:
-            # Already greyscale
-            img_array = image.astype('float32')
-        
-        # Convert to PIL for resizing
-        img = Image.fromarray(img_array.astype('uint8'))
-        img = img.resize((28, 28))
-        
-        # Back to numpy and normalise
-        img_array = np.array(img).astype('float32') / 255.0
+        # Use utility function to preprocess image
+        img_array = preprocess_image(image)
         
         # Add batch dimension: (28, 28) → (1, 28, 28)
         img_array = np.expand_dims(img_array, axis=0)

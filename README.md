@@ -1,22 +1,62 @@
-# Phase 13: Finish and Test History Feature
+# Phase 13 (Part 2): Moved Shared Code into utils.py
 
 ## What Changed
 
-- Tested the History tab end-to-end with multiple training runs
-- Verified data shows up correctly after training different architectures
-- Confirmed the empty state and refresh flow work properly
-- Small tweaks to how the History table displays
+- Created `utils.py` with a shared `preprocess_image()` function
+- Moved ~15 lines of image conversion code out of `app_ui.py`
+- `predict_uploaded_image()` now calls the shared function instead of doing it all inline
+- No visible changes to the app — just tidier code underneath
 
-Quick phase. Phase 12 built the database and the History tab, but I hadn't properly tested it beyond a single training run. This phase was about running through the whole workflow: train a few models, check the History tab shows everything, make sure refreshing works, and verify the empty state doesn't look broken.
+I was about to start Phase 14 which needs the same preprocessing, and was going to copy-paste the whole block when I realised that'd mean maintaining the same code in two places. Annoying if there's ever a bug. So I pulled it into its own file instead.
+
+VS Code actually has a thing where you select code and it offers to "extract" it into a function for you (little lightbulb in the margin). I tried it and it worked, but it put the function in the same file. I wanted it in a separate file so Phase 14 can import it too. Ended up doing it manually — created `utils.py` with the preprocessing function, then replaced the 15 lines in `app_ui.py` with a single function call. The idea is `models.py` has model definitions, `utils.py` has shared helpers, and `app_ui.py` has the UI. Each file does one thing.
+
+Apparently reorganising code like this without changing what it does is called "refactoring". Felt a bit like overkill for what's basically moving lines between files, but it does make the code easier to work with.
+
+## The PIL Type Issue
+
+My first version just did `Image.fromarray(image)` directly, but Gradio can pass float32 arrays and PIL's `fromarray` only accepts uint8. Got a `ValueError` about unhandled data types. The fix was converting to uint8 first, then handling both RGB and greyscale inputs:
+
+```python
+if isinstance(image, np.ndarray):
+    if len(image.shape) == 3:
+        img = Image.fromarray(image.astype('uint8')).convert('L')
+    else:
+        img = Image.fromarray(image.astype('uint8'))
+```
+
+Not complicated, just fiddly. The kind of thing where you write three lines to fix a type issue that would otherwise crash on certain inputs.
 
 ## Testing
 
-Trained one of each architecture: MLP (3 epochs), Small CNN (3 epochs), Deeper CNN (3 epochs). After each one, switched to the History tab and hit Refresh. All three showed up with correct data: right architecture name, right number of epochs, accuracy as a percentage, and the unique filename.
+Uploaded a test digit and got the same prediction and confidence as Phase 12. Trained a model to make sure that path still works, checked the History tab. Everything working exactly the same, so the reorganisation didn't break anything. If you opened the app you wouldn't notice any difference.
 
-Tried deleting the database and relaunching to check the empty state. The table shows column headers but no rows, which is fine. Better than some kind of error message.
+Knocked this out in under an hour. Probably the fastest phase so far.
 
-## What I Noticed
+## A Couple of Gotchas
 
-The timestamps in the table show the full ISO format with date and time, which is more than I need. Just the date would be cleaner, or maybe a relative time like "2 minutes ago". Left it for now since it works and the information is all there.
+### uint8 Cast Before PIL
 
-Also noticed the table doesn't auto-refresh when you switch to the History tab. You have to click the Refresh button. I went with manual refresh on purpose because I didn't want it hitting the database every time someone clicks between tabs.
+```python
+img = Image.fromarray(image.astype('uint8'))
+```
+
+Gradio passes images as float32 NumPy arrays but PIL's `Image.fromarray()` only accepts uint8. Without the `.astype('uint8')` it throws a `ValueError`. I wasn't sure why at first - turns out PIL is just stricter about data types than NumPy is.
+
+### Separate utils.py Instead of Keeping It in app_ui.py
+
+I could have just made `preprocess_image()` a function at the top of `app_ui.py`. I went with a separate file because Phase 14 will need to import it too, and having shared code sitting inside the UI file felt messy. If I ever need to change how preprocessing works, there's exactly one place to look.
+
+## File Structure
+
+```
+gradio_phase13/
+├── app_ui.py          # Main application (~320 lines, slightly less than Phase 12)
+├── utils.py           # Preprocessing function (42 lines, NEW)
+├── init_db.py         # Database initialisation (49 lines, unchanged)
+├── models.py          # 3 architectures (unchanged)
+├── requirements.txt   # Dependencies (unchanged)
+└── artifacts/
+    ├── training_history.db
+    └── model_{arch}_run{id}.keras
+```
