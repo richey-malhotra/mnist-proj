@@ -1,6 +1,6 @@
 """
 Database initialisation for training history.
-Creates SQLite database with two tables.
+Creates SQLite database with three tables.
 """
 
 import sqlite3
@@ -38,11 +38,24 @@ def create_database():
         )
     ''')
     
+    # Metrics table - stores epoch-by-epoch training data
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS metrics (
+            metric_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id INTEGER,
+            epoch INTEGER,
+            train_accuracy REAL,
+            val_accuracy REAL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (run_id) REFERENCES training_runs(run_id)
+        )
+    ''')
+    
     conn.commit()
     conn.close()
     
     print("✓ Database created successfully!")
-    print("  Tables: models, training_runs")
+    print("  Tables: models, training_runs, metrics")
     print("  Location: artifacts/training_history.db")
 
 if __name__ == "__main__":

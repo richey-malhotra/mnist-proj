@@ -1,27 +1,50 @@
-# Phase 13 (Part 2) Development Diary
+# Phase 14 Development Diary
 
-## Overview
+## What Happened
 
-Quick phase. I was about to start Phase 14 (multi-model comparison) and realised it's going to need the exact same image preprocessing that's already in `predict_uploaded_image()` — about 15 lines of converting uploads to 28×28 greyscale normalised arrays. I was literally about to copy-paste the whole block into a new function when I thought... that's going to be really annoying if I ever need to fix a bug in it, because I'd have to remember to change it in both places.
+So this was meant to be straightforward - add multi-model prediction comparison. But when I actually looked at my code from Phase 13, I realised I'd built the wrong thing. The plan said "comparison" - automatically run all three architectures and show results side by side. What I actually had was a dropdown where you pick which model to use manually. Completely different feature.
 
-## What Actually Happened
+Bit annoying honestly. I'd written a whole model selector with a refresh button and everything, and none of it was what the original spec described. Had to scrap most of it and start again.
 
-Selected the preprocessing block in VS Code to copy it, and this little lightbulb icon popped up in the margin. Clicked it and one of the options said "Extract method". Tried it out of curiosity — it pulled the selected code into its own function automatically and replaced the original block with a single function call. That's basically what I was going to do manually, just VS Code did it in about 2 seconds.
+## The Actual Comparison Feature
 
-Ended up not using the auto-generated version though, because I wanted the function in a separate file rather than just sitting at the top of `app_ui.py`. Created `utils.py` instead. Called it that because I noticed a few Python projects on GitHub use the name "utils" for shared helper functions — short for "utilities". So `models.py` has architecture definitions, `utils.py` has shared helpers, and `app_ui.py` has the UI logic.
+The rewrite was cleaner than what I had before, so at least something good came out of it. Wrote a `get_best_models()` function that queries the database for the highest-accuracy model per architecture (Phase 12's database schema made this pretty easy - just ORDER BY val_accuracy DESC LIMIT 1 for each architecture). Then `predict_with_comparison()` loads each best model, runs the prediction, and shows all results together with a consensus check at the end.
 
-Googled "extract method python" afterwards cos I was curious what VS Code was actually doing, and apparently this whole thing of reorganising your code without changing what it does is called "refactoring". There's a proper name for it and everything. Makes sense I suppose — you're not adding features, you're just reshaping the existing code so it's tidier. Feels like the kind of thing that sounds more impressive than it is though. I literally just moved some lines into a different file.
+The consensus bit is satisfyingly simple - just check if `len(set(predictions)) == 1`. If all models agree, they're probably right. If they disagree, that's interesting information too.
 
-## PIL Type Issue
+The `set()` thing works because sets can't have duplicates - so `set([3, 3, 3])` just becomes `{3}` and has length 1, meaning all models agreed. If one disagrees it'd be something like `{3, 7}` with length 2. Didn't know you could use sets like that, found it on Stack Overflow.
 
-Only real snag was a PIL type thing. My first version just did `Image.fromarray(image)` directly, but Gradio can pass float32 arrays and PIL's `fromarray` expects uint8. Got a `ValueError` about unhandled data types. The fix was adding type checks — convert to uint8 first if needed, handle both RGB and greyscale inputs, then do the conversion and resize. Three lines of type-checking to avoid crashes on dodgy input.
+Also started using list comprehensions here - instead of doing a for loop with `.append()` you can write `[row[0] for row in data]` and it builds the list in one go. Reads as "grab the first element from each row". We never did these in class but they seem to be all over the place in Python. Took a bit to get used to reading them but they're way shorter than the loop version.
+
+## Small CNN Corruption
+
+Of course it couldn't just work first time. MLP and Deeper CNN loaded fine, but the Small CNN threw
+
+```
+File not found: filepath=artifacts/model_small_cnn_run3.keras
+```
+
+which was confusing because `os.path.exists()` returned True. The file was there, 4.2MB, looked normal. Keras just couldn't read it - I think it was saved with a different TensorFlow version and the format is slightly incompatible. Spent about 20 minutes trying different things before giving up and just retraining a new Small CNN. New model saved and loaded perfectly.
+
+So now I know: just because a file exists doesn't mean Keras can open it. Wrapping `load_model()` in try/except from now on.
 
 ## Testing
 
-Uploaded a test digit and got the same prediction and confidence as before. Trained a model to make sure that path still works, checked the History tab. Everything working exactly the same, so moving the code didn't break anything. If I've done it right, nobody using the app should notice any difference — and they don't.
+Uploaded a test image and got:
+
+```
+MLP: Predicted 3 (Conf: 85.2%)
+Small CNN: Predicted 3 (Conf: 74.3%)
+Deeper CNN: Predicted 2 (Conf: 58.0%)
+
+Disagreement: Models predict different digits
+```
+
+Which is actually a good result because it shows the feature working properly - the models genuinely disagree sometimes and now you can see that. App launches fine, all tabs work, the old dropdown is gone.
 
 ## Reflection
 
-This is the kind of change where nothing looks different to the user but the code is better organised. Phase 14 will need `preprocess_image()` for running predictions across multiple saved models, so pulling it out now saves copy-pasting later. If there's ever a bug in the preprocessing, I only have to fix it in one place.
+This phase was basically fixing my own mistake, which isn't the most glamorous work but it needed doing. The comparison approach is way better than a dropdown - you can see all three predictions at once and the consensus check is actually useful. The corrupted model file was unexpected but it's good to know that can happen.
 
-Knocked this out in under an hour. Probably the fastest phase so far — the actual coding was maybe 20 minutes, the rest was testing to make sure nothing broke. The VS Code lightbulb thing was a nice find though. Might look into what other stuff it can do.
+Hour and a half maybe.
+

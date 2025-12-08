@@ -1,62 +1,65 @@
-# Phase 13 (Part 2): Moved Shared Code into utils.py
+# Phase 14: Multi-Model Prediction Comparison
 
 ## What Changed
 
-- Created `utils.py` with a shared `preprocess_image()` function
-- Moved ~15 lines of image conversion code out of `app_ui.py`
-- `predict_uploaded_image()` now calls the shared function instead of doing it all inline
-- No visible changes to the app — just tidier code underneath
+- Added `get_best_models()` to find the highest-accuracy model per architecture
+- Replaced single-model prediction with `predict_with_comparison()`
+- Predictions from all architectures shown side by side
+- Added consensus check: do all models agree on the digit?
+- Wrapped model loading in try/except after a corrupted file issue
 
-I was about to start Phase 14 which needs the same preprocessing, and was going to copy-paste the whole block when I realised that'd mean maintaining the same code in two places. Annoying if there's ever a bug. So I pulled it into its own file instead.
+So this phase was meant to be straightforward: add multi-model prediction comparison. But when I actually looked at my code from Phase 13, I realised I'd built the wrong thing. The plan said "comparison", meaning automatically run all three architectures and show results side by side. What I actually had was a single-model prediction where you just pick which model to use. Completely different feature so had to scrap the old predict function and start again.
 
-VS Code actually has a thing where you select code and it offers to "extract" it into a function for you (little lightbulb in the margin). I tried it and it worked, but it put the function in the same file. I wanted it in a separate file so Phase 14 can import it too. Ended up doing it manually — created `utils.py` with the preprocessing function, then replaced the 15 lines in `app_ui.py` with a single function call. The idea is `models.py` has model definitions, `utils.py` has shared helpers, and `app_ui.py` has the UI. Each file does one thing.
+The rewrite was cleaner than what I had before, so at least something good came out of it. `get_best_models()` queries the database for the highest-accuracy run per architecture (Phase 12's database schema made this pretty easy), then `predict_with_comparison()` loads each best model, runs the prediction, and shows all the results together.
 
-Apparently reorganising code like this without changing what it does is called "refactoring". Felt a bit like overkill for what's basically moving lines between files, but it does make the code easier to work with.
+## How the Comparison Works
 
-## The PIL Type Issue
+The flow is: `get_best_models()` looks through the database for each architecture and finds the run with the highest validation accuracy. It checks the file actually exists on disk before including it. I added that after running into the corrupted model problem.
 
-My first version just did `Image.fromarray(image)` directly, but Gradio can pass float32 arrays and PIL's `fromarray` only accepts uint8. Got a `ValueError` about unhandled data types. The fix was converting to uint8 first, then handling both RGB and greyscale inputs:
-
-```python
-if isinstance(image, np.ndarray):
-    if len(image.shape) == 3:
-        img = Image.fromarray(image.astype('uint8')).convert('L')
-    else:
-        img = Image.fromarray(image.astype('uint8'))
-```
-
-Not complicated, just fiddly. The kind of thing where you write three lines to fix a type issue that would otherwise crash on certain inputs.
-
-## Testing
-
-Uploaded a test digit and got the same prediction and confidence as Phase 12. Trained a model to make sure that path still works, checked the History tab. Everything working exactly the same, so the reorganisation didn't break anything. If you opened the app you wouldn't notice any difference.
-
-Knocked this out in under an hour. Probably the fastest phase so far.
-
-## A Couple of Gotchas
-
-### uint8 Cast Before PIL
+Then `predict_with_comparison()` preprocesses the uploaded image once using Phase 13's `preprocess_image()`, and loops through every best model to get predictions. At the end there's a consensus check:
 
 ```python
-img = Image.fromarray(image.astype('uint8'))
+if len(set(predictions)) == 1:
+    results.append("All models agree on " + str(predictions[0]))
+else:
+    results.append("Models predict different digits")
 ```
 
-Gradio passes images as float32 NumPy arrays but PIL's `Image.fromarray()` only accepts uint8. Without the `.astype('uint8')` it throws a `ValueError`. I wasn't sure why at first - turns out PIL is just stricter about data types than NumPy is.
+I think this is satisfyingly simple - just throw all the predictions into a set and if there's only one unique value, they all agree.
 
-### Separate utils.py Instead of Keeping It in app_ui.py
+## The Corrupted Model File
 
-I could have just made `preprocess_image()` a function at the top of `app_ui.py`. I went with a separate file because Phase 14 will need to import it too, and having shared code sitting inside the UI file felt messy. If I ever need to change how preprocessing works, there's exactly one place to look.
+MLP and Deeper CNN loaded fine, but the Small CNN threw a file-not-found error even though `os.path.exists()` returned True. The file was there, 4.2MB, looked normal. Keras just couldn't read it - I think it was saved with a different TensorFlow version. Spent about 20 minutes trying different things before giving up and just retraining a new Small CNN. The new model saved and loaded perfectly.
 
-## File Structure
+So basically, just because a file exists doesn't mean Keras can actually open it. That's why `predict_with_comparison()` wraps every `load_model()` call in try/except now. If one model file is bad, it shows an error for that architecture but the others still work.
 
+## Why I Did It This Way
+
+### `ORDER BY val_accuracy DESC LIMIT 1`
+
+```python
+cursor.execute('''
+    SELECT model_filename, val_accuracy
+    FROM training_runs WHERE model_id = ?
+    ORDER BY val_accuracy DESC LIMIT 1
+''', (model_id,))
 ```
-gradio_phase13/
-├── app_ui.py          # Main application (~320 lines, slightly less than Phase 12)
-├── utils.py           # Preprocessing function (42 lines, NEW)
-├── init_db.py         # Database initialisation (49 lines, unchanged)
-├── models.py          # 3 architectures (unchanged)
-├── requirements.txt   # Dependencies (unchanged)
-└── artifacts/
-    ├── training_history.db
-    └── model_{arch}_run{id}.keras
+
+To find the best model per architecture, I just sort by accuracy descending and take the first row. Simple SQL, no complicated grouping. Phase 12's database schema already stores validation accuracy per run so this was easy to add.
+
+### File Existence Check Before Loading
+
+```python
+if os.path.exists(f'artifacts/{filename}'):
+    best_models[arch] = (filename, result[1])
 ```
+
+After the corrupted model incident I added `os.path.exists()` in `get_best_models()`. If the best model's file is missing or deleted, it just skips that architecture and prints a warning. Better than crashing the whole comparison because one file went bad.
+
+### Consensus with `set()`
+
+```python
+if len(set(predictions)) == 1:
+```
+
+To check if all models agree, I put their predictions in a set. Sets remove duplicates, so if they all predicted the same digit the set has length 1. I wasn't sure if there was a better way to do this but it works and it's readable.

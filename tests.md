@@ -246,3 +246,23 @@ The History tab shows all past training runs in a table format.
 **History doesn't auto-refresh after training.** You have to manually click the History tab and hit Refresh to see new runs. Ideally it should update automatically when training finishes, but I can't figure out how to trigger a component update in a different tab from the training function in Gradio. This is a known usability issue that I'm leaving as-is.
 
 **Empty state looks weird.** When there are no training runs, the table shows an empty DataFrame with just column headers. Should really show a message like "No training runs yet" but the Gradio Dataframe component doesn't support placeholder text easily.
+---
+
+## Phase 14 — Multi-Model Comparison
+
+### What I tested
+
+Prediction now runs against all trained model types and shows a comparison.
+
+### Tests
+
+| # | What I tried | Type | Expected | Actual | Pass? |
+|---|---|---|---|---|---|
+| 1 | Predict with 3 trained models | Normal | All 3 predictions shown | All displayed with correct labels | Yes |
+| 2 | Predict with only 1 model trained | Boundary | Should show just that one | Showed just MLP prediction, others said "not available" | Yes |
+| 3 | Upload same image twice | Normal | Same results each time | Identical predictions | Yes |
+| 4 | Check confidence percentages are reasonable | Normal | High for correct, low for wrong | Correct digit always had highest confidence | Yes |
+
+### Bugs found
+
+**Nothing major.** The comparison feature was straightforward since I already had the prediction code — just needed to run it through multiple models and format the output.

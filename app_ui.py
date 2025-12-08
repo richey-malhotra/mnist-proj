@@ -1,6 +1,6 @@
 """
 MNIST Digit Recognition Project
-Phase 12: Database Schema + Training History Tab
+Phase 14: Multi-Model Prediction Comparison
 """
 
 import warnings
@@ -12,10 +12,12 @@ from PIL import Image
 import numpy as np
 import sqlite3
 import pandas as pd
+import os
 from datetime import datetime
 from tensorflow.keras.datasets import mnist
 from models import create_mlp, create_small_cnn, create_deeper_cnn, load_model, save_model
 from utils import preprocess_image
+import plotly.graph_objects as go
 
 # Load MNIST data once at startup
 print("Loading MNIST dataset...")
@@ -23,11 +25,6 @@ print("Loading MNIST dataset...")
 x_train = x_train.astype('float32') / 255.0
 x_test = x_test.astype('float32') / 255.0
 print(f"Dataset loaded: {x_train.shape[0]} training images, {x_test.shape[0]} test images")
-
-# Load existing model for prediction
-print("Loading trained model...")
-model = load_model('artifacts/mnist_mlp.keras')
-print("Model loaded successfully!")
 
 
 def save_training_run(architecture, epochs, batch_size, val_accuracy):
@@ -108,8 +105,132 @@ def get_training_history():
     
     # Convert to DataFrame
     df = pd.DataFrame(data)
-    
     return df
+
+
+def get_latest_run_id():
+    """Get the run_id of the most recently created training run."""
+    conn = sqlite3.connect('artifacts/training_history.db')
+    cursor = conn.cursor()
+    
+    cursor.execute('SELECT run_id FROM training_runs ORDER BY run_id DESC LIMIT 1')
+    result = cursor.fetchone()
+    
+    conn.close()
+    return result[0] if result else None
+
+
+def save_epoch_metrics(run_id, epoch, train_accuracy, val_accuracy):
+    """Save epoch-by-epoch training metrics to database."""
+    conn = sqlite3.connect('artifacts/training_history.db')
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        INSERT INTO metrics (run_id, epoch, train_accuracy, val_accuracy)
+        VALUES (?, ?, ?, ?)
+    ''', (run_id, epoch, train_accuracy, val_accuracy))
+    
+    conn.commit()
+    conn.close()
+
+
+def create_accuracy_chart():
+    """Create accuracy timeline for latest training run."""
+    conn = sqlite3.connect('artifacts/training_history.db')
+    cursor = conn.cursor()
+    
+    # Get latest run
+    cursor.execute('SELECT run_id FROM training_runs ORDER BY run_id DESC LIMIT 1')
+    result = cursor.fetchone()
+    
+    if not result:
+        conn.close()
+        return None
+    
+    run_id = result[0]
+    
+    # Get metrics for this run
+    cursor.execute('''
+        SELECT epoch, train_accuracy, val_accuracy
+        FROM metrics
+        WHERE run_id = ?
+        ORDER BY epoch
+    ''', (run_id,))
+    
+    data = cursor.fetchall()
+    conn.close()
+    
+    if not data:
+        return None
+    
+    epochs = [row[0] for row in data]
+    train_acc = [row[1] * 100 for row in data]
+    val_acc = [row[2] * 100 for row in data]
+    
+    # Create plot
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=epochs, y=train_acc,
+        name='Training Accuracy',
+        mode='lines+markers'
+    ))
+    fig.add_trace(go.Scatter(
+        x=epochs, y=val_acc,
+        name='Validation Accuracy',
+        mode='lines+markers'
+    ))
+    
+    fig.update_layout(
+        title='Accuracy Over Epochs (Latest Run)',
+        xaxis_title='Epoch',
+        yaxis_title='Accuracy (%)',
+        hovermode='x unified'
+    )
+    
+    return fig
+
+
+def get_best_models():
+    """Find the best model file for each architecture from the database."""
+    conn = sqlite3.connect('artifacts/training_history.db')
+    cursor = conn.cursor()
+    
+    # Get all architectures
+    cursor.execute('SELECT DISTINCT architecture FROM models')
+    architectures = [row[0] for row in cursor.fetchall()]
+    
+    best_models = {}
+    
+    for arch in architectures:
+        # Get model_id for this architecture first
+        cursor.execute('SELECT model_id FROM models WHERE architecture = ?', (arch,))
+        model_result = cursor.fetchone()
+        
+        if not model_result:
+            continue
+            
+        model_id = model_result[0]
+        
+        # Find best run for this model_id (simple query without JOIN)
+        cursor.execute('''
+            SELECT model_filename, val_accuracy 
+            FROM training_runs
+            WHERE model_id = ?
+            ORDER BY val_accuracy DESC
+            LIMIT 1
+        ''', (model_id,))
+        
+        result = cursor.fetchone()
+        if result:
+            filename = result[0]
+            # Verify file exists before adding
+            if os.path.exists(f'artifacts/{filename}'):
+                best_models[arch] = (filename, result[1])
+            else:
+                print(f"Warning: Best model for {arch} ({filename}) not found on disk.")
+    
+    conn.close()
+    return best_models
 
 
 def train_new_model(architecture, epochs, batch_size):
@@ -133,6 +254,9 @@ def train_new_model(architecture, epochs, batch_size):
         # Initial message
         yield f"Starting training ({architecture})...\nEpochs: {epochs}, Batch Size: {batch_size}\n\n"
         
+        # Get run_id for this training session (save metrics later)
+        run_id = None
+        
         # Train one epoch at a time to show progress
         all_results = []
         for epoch in range(epochs):
@@ -152,6 +276,15 @@ def train_new_model(architecture, epochs, batch_size):
             val_acc = history.history['val_accuracy'][0] * 100
             final_val_acc = history.history['val_accuracy'][0]  # Store for database
             
+            # Save metrics to database (get run_id on first epoch)
+            if run_id is None:
+                # Save training run first to get run_id
+                model_filename = save_training_run(architecture, epochs, batch_size, final_val_acc)
+                run_id = get_latest_run_id()  # Need to add this function
+            
+            # Save epoch metrics
+            save_epoch_metrics(run_id, epoch + 1, history.history['accuracy'][0], history.history['val_accuracy'][0])
+            
             # Store results
             epoch_result = f"Epoch {epoch + 1}/{epochs}: Train Acc = {train_acc:.2f}%, Val Acc = {val_acc:.2f}%"
             all_results.append(epoch_result)
@@ -159,46 +292,68 @@ def train_new_model(architecture, epochs, batch_size):
             # Yield progress update (shows all previous epochs + current)
             yield "\n".join(all_results) + "\n\n"
         
-        # Save to database with unique filename
-        model_filename = save_training_run(architecture, epochs, batch_size, final_val_acc)
+        # Save model file
         model_path = f'artifacts/{model_filename}'
         save_model(new_model, model_path)
         print(f"Model saved to {model_path}")
         
         # Final summary
-        final_result = "\n".join(all_results) + f"\n\nTraining Complete!\nModel saved to: {model_path}\nSaved to database with Run ID"
+        final_result = "\n".join(all_results) + f"\n\nTraining Complete!\nModel saved to: {model_path}\nSaved to database with Run ID {run_id}"
         yield final_result
         
     except Exception as e:
         yield f"Error during training: {str(e)}"
 
 
-def predict_uploaded_image(image):
-    """Predict digit from an uploaded image."""
+def predict_with_comparison(image):
+    """
+    Predict digit using best models for each architecture.
+    Compares results side-by-side.
+    """
     if image is None:
         return "Please upload an image."
     
-    try:
-        # Use utility function to preprocess image
-        img_array = preprocess_image(image)
-        
-        # Add batch dimension: (28, 28) → (1, 28, 28)
-        img_array = np.expand_dims(img_array, axis=0)
-        
-        # Get prediction
-        prediction = model.predict(img_array, verbose=0)
-        
-        # Extract digit and confidence
-        digit = int(prediction.argmax())
-        confidence = float(prediction[0][digit]) * 100
-        
-        # Format output
-        result = f"Predicted Digit: {digit}\nConfidence: {confidence:.2f}%"
-        
-        return result
+    best_models = get_best_models()
     
+    if not best_models:
+        return "No trained models found. Please train some models first!"
+    
+    # Preprocess image once
+    try:
+        img_array = preprocess_image(image)
+        img_array = np.expand_dims(img_array, axis=0)
     except Exception as e:
-        return f"Error: {str(e)}"
+        return f"Error processing image: {e}"
+    
+    results = []
+    predictions = []
+    
+    for arch, (filename, accuracy) in best_models.items():
+        try:
+            # Load model
+            model_path = f'artifacts/{filename}'
+            model = load_model(model_path)
+            
+            # Predict
+            pred = model.predict(img_array, verbose=0)
+            digit = int(pred.argmax())
+            confidence = float(pred[0][digit]) * 100
+            
+            predictions.append(digit)
+            
+            # Format output (simple text, not complex Markdown)
+            results.append(f"{arch}: Predicted {digit} (Conf: {confidence:.1f}%)")
+            
+        except Exception as e:
+            results.append(f"{arch}: Error loading/predicting ({e})")
+    
+    # Add consensus check
+    if predictions and len(set(predictions)) == 1:
+        results.append(f"\n✅ Consensus: All models agree on {predictions[0]}")
+    elif predictions:
+        results.append(f"\n⚠️ Disagreement: Models predict different digits")
+        
+    return "\n".join(results)
 
 
 # Create Gradio interface with tabs
@@ -253,29 +408,29 @@ with gr.Blocks(title="MNIST Digit Classifier") as demo:
     
     with gr.Tab("Predict"):
         gr.Markdown("### Upload Image for Prediction")
-        gr.Markdown("Upload a handwritten digit image (will be converted to 28×28 greyscale)")
+        gr.Markdown("Upload a handwritten digit image to see predictions from your best models.")
         
         with gr.Row():
             with gr.Column(scale=1):
                 image_input = gr.Image(label="Upload Digit Image")
-                predict_button = gr.Button("Predict", variant="primary")
+                predict_button = gr.Button("Predict with All Models", variant="primary")
             
             with gr.Column(scale=1):
                 prediction_output = gr.Textbox(
-                    label="Prediction Result",
-                    lines=5
+                    label="Prediction Results",
+                    lines=8
                 )
         
         predict_button.click(
-            fn=predict_uploaded_image,
-            inputs=image_input,
+            fn=predict_with_comparison,
+            inputs=[image_input],
             outputs=prediction_output,
             api_name=False  # Disable API to avoid Gradio bug
         )
     
     with gr.Tab("History"):
         gr.Markdown("### Training History")
-        gr.Markdown("View all previous training runs and their results")
+        gr.Markdown("View all previous training runs and their accuracy charts")
         
         refresh_button = gr.Button("Refresh History", variant="secondary")
         
@@ -288,10 +443,17 @@ with gr.Blocks(title="MNIST Digit Classifier") as demo:
             interactive=False
         )
         
-        # Load history on button click
+        # Accuracy chart
+        accuracy_chart = gr.Plot(label="Training Accuracy Chart")
+        
+        # Load history and chart on button click
         refresh_button.click(
             fn=get_training_history,
             outputs=history_table,
+            api_name=False
+        ).then(
+            fn=create_accuracy_chart,
+            outputs=accuracy_chart,
             api_name=False
         )
 
