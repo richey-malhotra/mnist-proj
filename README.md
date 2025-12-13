@@ -1,65 +1,101 @@
-# Phase 14: Multi-Model Prediction Comparison
+# Phase 15: Accuracy Chart
 
 ## What Changed
 
-- Added `get_best_models()` to find the highest-accuracy model per architecture
-- Replaced single-model prediction with `predict_with_comparison()`
-- Predictions from all architectures shown side by side
-- Added consensus check: do all models agree on the digit?
-- Wrapped model loading in try/except after a corrupted file issue
+- Added `metrics` table for epoch-by-epoch accuracy data
+- Created accuracy chart with Plotly line graph and markers
+- Custom Keras callback saves metrics after each epoch
+- Extended History tab with chart alongside the training runs table
+- Used `.then()` to chain table and chart refreshes from one button
 
-So this phase was meant to be straightforward: add multi-model prediction comparison. But when I actually looked at my code from Phase 13, I realised I'd built the wrong thing. The plan said "comparison", meaning automatically run all three architectures and show results side by side. What I actually had was a single-model prediction where you just pick which model to use. Completely different feature so had to scrap the old predict function and start again.
+Phase 14 added multi-model prediction comparison. This phase adds a chart to the History tab - specifically an accuracy chart so I can spot patterns like overfitting, where training accuracy keeps rising but validation flattens or drops.
 
-The rewrite was cleaner than what I had before, so at least something good came out of it. `get_best_models()` queries the database for the highest-accuracy run per architecture (Phase 12's database schema made this pretty easy), then `predict_with_comparison()` loads each best model, runs the prediction, and shows all the results together.
+## Database Schema
 
-## How the Comparison Works
+Needed a new `metrics` table because each training run has multiple epochs. Briefly considered jamming epoch data as JSON into the existing `training_runs` table - like, one big JSON string per row with all the epoch numbers and accuracies crammed in. But then I'd have to parse that string every time I wanted to read it, and you can't really do SQL queries on stuff that's buried inside a JSON blob. Separate table:
 
-The flow is: `get_best_models()` looks through the database for each architecture and finds the run with the highest validation accuracy. It checks the file actually exists on disk before including it. I added that after running into the corrupted model problem.
-
-Then `predict_with_comparison()` preprocesses the uploaded image once using Phase 13's `preprocess_image()`, and loops through every best model to get predictions. At the end there's a consensus check:
-
-```python
-if len(set(predictions)) == 1:
-    results.append("All models agree on " + str(predictions[0]))
-else:
-    results.append("Models predict different digits")
+```sql
+CREATE TABLE IF NOT EXISTS metrics (
+    metric_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id INTEGER,
+    epoch INTEGER,
+    train_accuracy REAL,
+    val_accuracy REAL,
+    FOREIGN KEY (run_id) REFERENCES training_runs(run_id)
+);
 ```
 
-I think this is satisfyingly simple - just throw all the predictions into a set and if there's only one unique value, they all agree.
+Storing raw Keras floats (like 0.93) and only multiplying by 100 for display. Almost stored percentages directly which would've been inconsistent with everything else. Glad I caught that early.
 
-## The Corrupted Model File
+## The Keras Callback
 
-MLP and Deeper CNN loaded fine, but the Small CNN threw a file-not-found error even though `os.path.exists()` returned True. The file was there, 4.2MB, looked normal. Keras just couldn't read it - I think it was saved with a different TensorFlow version. Spent about 20 minutes trying different things before giving up and just retraining a new Small CNN. The new model saved and loaded perfectly.
+Used a custom Keras callback class to write metrics after each epoch - my first time writing a Python class. Had to learn about `class`, `self`, `__init__()`, and inheritance (basing my class on an existing Keras one). The class overrides `on_epoch_end()` to save data to the database.
 
-So basically, just because a file exists doesn't mean Keras can actually open it. That's why `predict_with_comparison()` wraps every `load_model()` call in try/except now. If one model file is bad, it shows an error for that architecture but the others still work.
+Two bugs:
+1. Saved epochs as 0-based (epoch 0, 1, 2…), which looked weird in the chart. Changed to `epoch + 1`.
+2. Used `logs.get('acc')` instead of `logs.get('accuracy')` and got NULL values in the database. Had to print out the actual log keys to find the right name. Wasted about 5 minutes.
 
-## Why I Did It This Way
+## Plotly Chart
 
-### `ORDER BY val_accuracy DESC LIMIT 1`
+Started with `px.line` from Plotly Express but switched to `go.Figure()` with manual traces for more control over the layout. Added dots on each data point so you can see individual epochs, and set the hover to show both training and validation values at the same time. The chart only shows the latest training run - considered overlaying all runs but that gets messy with different epoch counts.
 
-```python
-cursor.execute('''
-    SELECT model_filename, val_accuracy
-    FROM training_runs WHERE model_id = ?
-    ORDER BY val_accuracy DESC LIMIT 1
-''', (model_id,))
+If no training data exists, the function returns `None` and Gradio shows a blank plot. Not beautiful but it doesn't crash.
+
+## Wiring the UI
+
+Trickier than expected. Needed the refresh button to update both the table and the chart. Initially tried two separate `.click()` calls on the same button, but only one fired reliably. Found `.then()` in the Gradio docs which chains callbacks in sequence. That fixed it properly.
+
+## Testing
+
+Ran `init_db.py` to create the metrics table (the existing DB doesn't update its tables automatically). Trained MLP for 3 epochs, checked the database in sqlite3 CLI and found 3 rows with sensible values. Chart appeared on refresh, hover matched the DB. Did a second run with 5 epochs to confirm it shows the new run. Deleted the DB and relaunched to test the empty state. Blank chart, no crashes.
+
+Plotly was new to me so it took a while to get my head round it, but now I think I could do more chart stuff without it taking ages.
+
+## How It Works
+
+### Opening a New Database Connection Every Time
+
+Every time a metric gets saved, the code opens a new connection to the database, saves the data, and closes it again. For 20 epochs that's 20 separate connections. I could keep one connection open for the whole training run and that would be faster, but doing it this way means each epoch's data is saved straight away - if something crashes halfway through, the earlier epochs are already in the database.
+
+### Hover Shows All Lines at Once
+
+I set the chart to show both the training and validation accuracy when you hover over a point, not just the nearest one. So hovering over epoch 3 shows both values side by side. Much more useful than having to hover over each line separately.
+
+### Using Lines and Dots Together
+
+Each line on the chart has dots at the actual data points. Without the dots, hovering would try to snap to positions between the real data which isn't helpful. The dots make it clear where the actual epoch values are.
+
+### Returning `None` for Empty Charts
+
+When there's no data yet, the function returns `None` instead of an empty chart. Gradio handles `None` by just showing a blank space, which looks cleaner than an empty chart with axes but no data.
+
+## File Structure
+
+```
+gradio_phase15/
+├── app_ui.py          # Main UI (420 lines, +70 from Phase 14)
+├── utils.py           # Preprocessing function (42 lines)
+├── models.py          # Model architectures (unchanged)
+├── init_db.py         # Database initialisation (80 lines, +10)
+├── requirements.txt   # Dependencies (+plotly)
+└── artifacts/
+    └── training_history.db
 ```
 
-To find the best model per architecture, I just sort by accuracy descending and take the first row. Simple SQL, no complicated grouping. Phase 12's database schema already stores validation accuracy per run so this was easy to add.
+## How to Run
 
-### File Existence Check Before Loading
-
-```python
-if os.path.exists(f'artifacts/{filename}'):
-    best_models[arch] = (filename, result[1])
+```bash
+pip install -r requirements.txt  # Now includes plotly
+python init_db.py                # Creates metrics table
+python app_ui.py
 ```
 
-After the corrupted model incident I added `os.path.exists()` in `get_best_models()`. If the best model's file is missing or deleted, it just skips that architecture and prints a warning. Better than crashing the whole comparison because one file went bad.
+## Differences from Phase 14
 
-### Consensus with `set()`
-
-```python
-if len(set(predictions)) == 1:
-```
-
-To check if all models agree, I put their predictions in a set. Sets remove duplicates, so if they all predicted the same digit the set has length 1. I wasn't sure if there was a better way to do this but it works and it's readable.
+| Aspect | Phase 14 | Phase 15 |
+|--------|----------|----------|
+| **History tab** | Table only | Table + accuracy chart |
+| **Epoch tracking** | Final accuracy only | Per-epoch train + val accuracy |
+| **Database tables** | models, training_runs | + metrics table |
+| **Visualisation** | None | Plotly line chart with markers |
+| **app_ui.py** | 350 lines | 420 lines (+70) |

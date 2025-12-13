@@ -117,3 +117,53 @@ I'm not going to add file-based error logging though. It's good practice in indu
 - Set up an SQLite database for storing training history
 - Start thinking about splitting the code into separate files
 - Save training runs automatically with architecture, epochs, accuracy, and date
+---
+
+## Phase 15 — Christmas holiday catch-up (mid-December)
+
+### When and how
+
+Getting close to Christmas holidays so I showed a few people the progress. FaceTimed Lefteris and Yiannis separately, and also had a call with Petros. Wanted to get feedback before I stopped working over Christmas.
+
+### What they could see
+
+Full app with multi-model prediction comparison, training history in a database table, and the accuracy chart I'd just finished adding.
+
+### What Lefteris said
+
+First he asked me to remind him what MLP and CNN mean — "you told me last time but I forgot." I explained again and he said "right yeah, the one with the filters."
+
+"The chart is nice but all the numbers are really similar — like 97%, 98%, 99%. Can you zoom in or something? Also I didn't know which colour was which until I hovered over them."
+
+He also said "which model should I actually use though? They're all really close." I explained that the CNNs are technically better but take longer to train.
+
+He also asked "can't the AI just learn as people use it? Like every time someone draws a digit and confirms what it is, it gets better?" I said that's actually a real thing (online learning) but it's way more complicated than what I'm doing and you'd have to worry about people feeding it bad data.
+
+He then asked "what if instead of uploading a photo you could draw the digit yourself? Like with your finger?" I said that was actually already on my to-do list, so his timing was perfect.
+
+### What Yiannis said
+
+"OK the accuracy is almost the same but how long does each one take to train? Because if the deeper CNN is barely better but takes way longer, is it worth it? Can you add something that shows the training time too?"
+
+He said in his Java project they had to think about efficiency vs quality trade-offs too. He also said "it's come a long way since the terminal version, I barely recognise it" which was nice to hear.
+
+He also suggested "you could add keyboard shortcuts — like press Enter to submit the prediction instead of clicking the button." I thought about it but Gradio doesn't support custom keyboard shortcuts easily and it's not a high priority.
+
+### What Petros said
+
+"Plotly is a good choice for interactive charts. I like the hovering thing where you see the values. If you want to show the trade-off between accuracy and training time, a scatter plot would work well — accuracy on one axis, training time on the other. That way you can see at a glance which models give the best accuracy relative to their training cost."
+
+"Also, you might want to think about cross-validation rather than a single train/test split. It gives a more reliable accuracy estimate." I asked what that means and he explained — basically training multiple times on different subsets of data. Interesting but sounds complicated and I'm running low on time.
+
+### My thoughts
+
+Lefteris is right that when all the accuracies are close together the chart is hard to read. I can't really fix that - it's just that the models really are within a few percent of each other. The y-axis scaling issue is noted in my testing log.
+
+Yiannis's idea about showing training time is really good. I'm not tracking training time yet but it wouldn't be hard to add a duration column to the database and then chart it. The keyboard shortcuts idea is reasonable but lower priority than actual features.
+
+Petros's scatter plot suggestion makes sense — it would show the trade-off between speed and accuracy much more clearly than separate charts for each metric. Cross-validation is beyond what I'm doing — maybe I'll mention it in the evaluation as a "what I'd do next" thing.
+
+### What I'll do next
+
+- Add a training time comparison chart
+- Look into a scatter plot for time vs accuracy (the dashboard idea)

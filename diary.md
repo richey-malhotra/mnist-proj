@@ -1,50 +1,69 @@
-# Phase 14 Development Diary
+# Phase 15 Development Diary
 
-## What Happened
+## What I Was Doing
 
-So this was meant to be straightforward - add multi-model prediction comparison. But when I actually looked at my code from Phase 13, I realised I'd built the wrong thing. The plan said "comparison" - automatically run all three architectures and show results side by side. What I actually had was a dropdown where you pick which model to use manually. Completely different feature.
+Adding accuracy charts to the History tab. Phase 12 introduced the History tab with a table of training runs, and it worked fine but it was just numbers - wanted to actually see how accuracy changes per epoch so I could spot patterns like overfitting.
 
-Bit annoying honestly. I'd written a whole model selector with a refresh button and everything, and none of it was what the original spec described. Had to scrap most of it and start again.
+## Schema Extension
 
-## The Actual Comparison Feature
+Needed a new `metrics` table because each training run has multiple epochs. I briefly thought about storing epoch data as a JSON string inside the existing training_runs table - still not totally comfortable with JSON if I'm honest, the whole format feels a bit fiddly with all the braces and quotes. But more importantly you wouldn't be able to query individual epochs with SQL, you'd just have this big blob of text to deal with. Separate table with run_id, epoch, train_accuracy, val_accuracy. Straightforward.
 
-The rewrite was cleaner than what I had before, so at least something good came out of it. Wrote a `get_best_models()` function that queries the database for the highest-accuracy model per architecture (Phase 12's database schema made this pretty easy - just ORDER BY val_accuracy DESC LIMIT 1 for each architecture). Then `predict_with_comparison()` loads each best model, runs the prediction, and shows all results together with a consensus check at the end.
+One decision I'm glad I made early: store raw floats from Keras (like 0.93) and only multiply by 100 for display. Almost stored percentages directly which would've been inconsistent with everything else.
 
-The consensus bit is satisfyingly simple - just check if `len(set(predictions)) == 1`. If all models agree, they're probably right. If they disagree, that's interesting information too.
+## The Callback
 
-The `set()` thing works because sets can't have duplicates - so `set([3, 3, 3])` just becomes `{3}` and has length 1, meaning all models agreed. If one disagrees it'd be something like `{3, 7}` with length 2. Didn't know you could use sets like that, found it on Stack Overflow.
+Used a custom Keras callback to write metrics to the database after each epoch. This was my first time writing a Python class from scratch, so I had to look up basically everything. The syntax goes:
 
-Also started using list comprehensions here - instead of doing a for loop with `.append()` you can write `[row[0] for row in data]` and it builds the list in one go. Reads as "grab the first element from each row". We never did these in class but they seem to be all over the place in Python. Took a bit to get used to reading them but they're way shorter than the loop version.
+```python
+class MetricsCallback(keras.callbacks.Callback):
+    def __init__(self, run_id):
+        super().__init__()
+        self.run_id = run_id
 
-## Small CNN Corruption
-
-Of course it couldn't just work first time. MLP and Deeper CNN loaded fine, but the Small CNN threw
-
+    def on_epoch_end(self, epoch, logs=None):
+        # save metrics to database here
 ```
-File not found: filepath=artifacts/model_small_cnn_run3.keras
-```
 
-which was confusing because `os.path.exists()` returned True. The file was there, 4.2MB, looked normal. Keras just couldn't read it - I think it was saved with a different TensorFlow version and the format is slightly incompatible. Spent about 20 minutes trying different things before giving up and just retraining a new Small CNN. New model saved and loaded perfectly.
+Had to look up every part of this.
 
-So now I know: just because a file exists doesn't mean Keras can open it. Wrapping `load_model()` in try/except from now on.
+`class MetricsCallback(keras.callbacks.Callback)` means I'm creating a new type of thing called MetricsCallback that's based on Keras's existing Callback class. The bit in brackets is inheritance - my class gets all the built-in callback behaviour and I just change the specific parts I care about.
+
+`__init__` is the setup function that runs when you first create one of these objects. The double underscores mean it's a special Python method, not something you'd normally name yourself. `self` is how the object refers to its own data - so `self.run_id = run_id` saves the run ID inside the object so the other methods can use it later. And `super().__init__()` calls the parent class's setup so I don't accidentally break whatever Keras needs to do internally.
+
+`on_epoch_end` is a method I'm overriding - the parent Callback class already has this method but it does nothing by default. By writing my own version, I'm saying "when an epoch finishes, do this instead". Keras calls it automatically during training, which is the same callback idea from Phase 6 - I'm not calling this function myself, Keras calls it for me at the right time.
+
+Honestly the class syntax felt really heavy for what's basically "run this code after each epoch". But I think it makes sense because Keras has loads of different hooks (start of training, end of epoch, end of batch, etc.) and a class keeps them all organised together.
+
+Actually ended up not using the callback class — since I'm already training one epoch at a time from Phase 10, I can just call `save_epoch_metrics()` directly in the loop after each epoch. Simpler and it already works. But glad I learned how callbacks work, it'll probably be useful eventually.
+
+First version saved epochs as 0-based (epoch 0, 1, 2...) which looked weird in the chart. Changed to +1 so it starts at 1 like a normal person would expect.
+
+Also hit an annoying Keras problem - used `logs.get('acc')` instead of `logs.get('accuracy')`. Got NULL values in the database until I printed out the actual log keys and found the right name. Wasted about 5 minutes on that.
+
+## Plotly Charts
+
+Started with `px.line` from Plotly Express but switched to `go.Figure()` with manual traces because I wanted more control over the layout. Added markers on each data point so you can see individual epochs clearly, and unified hover so training and validation appear together.
+
+The chart only shows the latest training run for now. Considered showing all runs overlaid but that gets messy with different epoch counts. Might add a dropdown for run selection in a future phase but keeping it simple for now.
+
+## Wiring It Up
+
+The UI part was trickier than expected. Had the refresh button triggering two updates (table + chart) and initially tried two separate `.click()` calls on the same button. Only one seemed to fire reliably. Found `.then()` in the Gradio docs which chains callbacks in sequence - that fixed it properly.
+
+If there are no training runs yet, the chart function just returns None and Gradio shows a blank plot. Not beautiful but it doesn't crash.
 
 ## Testing
 
-Uploaded a test image and got:
+Ran init_db.py to create the metrics table (had to do this manually since the existing DB doesn't add new columns on its own). Trained MLP for 3 epochs, checked the database in sqlite3 CLI - 3 rows with sensible values. Chart appeared on refresh, hover matched the DB values. Did a second run with 5 epochs to confirm it shows the new run not the old one.
 
-```
-MLP: Predicted 3 (Conf: 85.2%)
-Small CNN: Predicted 3 (Conf: 74.3%)
-Deeper CNN: Predicted 2 (Conf: 58.0%)
+Deleted the DB file and relaunched to test the empty state - blank chart, no crashes.
 
-Disagreement: Models predict different digits
-```
+Hit a bunch of small mistakes - saved epochs as 0-based instead of 1-based, used the wrong Keras log key (`acc` instead of `accuracy` which gave me NULL values), forgot to import plotly, displayed raw floats on the y-axis instead of percentages. All tiny things but they add up. Writing them down so I remember they're normal.
 
-Which is actually a good result because it shows the feature working properly - the models genuinely disagree sometimes and now you can see that. App launches fine, all tabs work, the old dropdown is gone.
+## End of Session
 
-## Reflection
+This makes the app feel properly useful. Seeing validation accuracy flatten while training accuracy keeps rising actually tells you something useful - without the chart I'd miss that pattern completely. The chart is basic but it gets the point across, which is all it needs to do.
 
-This phase was basically fixing my own mistake, which isn't the most glamorous work but it needed doing. The comparison approach is way better than a dropdown - you can see all three predictions at once and the consensus check is actually useful. The corrupted model file was unexpected but it's good to know that can happen.
+About 3 hours, mostly Plotly. Hadn't used it before.
 
-Hour and a half maybe.
-
+Phase 16 might add more chart types or the ability to compare runs visually.

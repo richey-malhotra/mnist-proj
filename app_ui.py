@@ -1,6 +1,6 @@
 """
 MNIST Digit Recognition Project
-Phase 14: Multi-Model Prediction Comparison
+Phase 15: Accuracy Chart
 """
 
 import warnings
@@ -18,6 +18,7 @@ from tensorflow.keras.datasets import mnist
 from models import create_mlp, create_small_cnn, create_deeper_cnn, load_model, save_model
 from utils import preprocess_image
 import plotly.graph_objects as go
+import time
 
 # Load MNIST data once at startup
 print("Loading MNIST dataset...")
@@ -27,7 +28,7 @@ x_test = x_test.astype('float32') / 255.0
 print(f"Dataset loaded: {x_train.shape[0]} training images, {x_test.shape[0]} test images")
 
 
-def save_training_run(architecture, epochs, batch_size, val_accuracy):
+def save_training_run(architecture, epochs, batch_size, val_accuracy, duration=None):
     """Save training run to database with unique filename."""
     conn = sqlite3.connect('artifacts/training_history.db')
     cursor = conn.cursor()
@@ -55,9 +56,9 @@ def save_training_run(architecture, epochs, batch_size, val_accuracy):
     # Insert training run
     cursor.execute('''
         INSERT INTO training_runs 
-        (model_id, epochs, batch_size, val_accuracy, model_filename)
-        VALUES (?, ?, ?, ?, ?)
-    ''', (model_id, epochs, batch_size, val_accuracy, model_filename))
+        (model_id, epochs, batch_size, val_accuracy, model_filename, duration)
+        VALUES (?, ?, ?, ?, ?, ?)
+    ''', (model_id, epochs, batch_size, val_accuracy, model_filename, duration))
     
     conn.commit()
     conn.close()
@@ -190,6 +191,73 @@ def create_accuracy_chart():
     return fig
 
 
+def create_time_comparison_chart():
+    """Create bar chart showing average training time by architecture."""
+    conn = sqlite3.connect('artifacts/training_history.db')
+    cursor = conn.cursor()
+    
+    # Get all runs with durations (no JOIN - query models separately)
+    cursor.execute('''
+        SELECT model_id, duration
+        FROM training_runs
+        WHERE duration IS NOT NULL
+        ORDER BY model_id
+    ''')
+    
+    runs = cursor.fetchall()
+    
+    # Build data list with architecture names
+    data = []
+    for model_id, duration in runs:
+        # Look up architecture for this model_id
+        cursor.execute('SELECT architecture FROM models WHERE model_id = ?', (model_id,))
+        arch_result = cursor.fetchone()
+        if arch_result:
+            data.append((arch_result[0], duration))
+    
+    conn.close()
+    
+    if not data:
+        return None
+    
+    # Group by architecture and calculate averages
+    arch_times = {}
+    arch_counts = {}
+    
+    for arch, duration in data:
+        if arch not in arch_times:
+            arch_times[arch] = 0
+            arch_counts[arch] = 0
+        arch_times[arch] += duration
+        arch_counts[arch] += 1
+    
+    # Calculate averages
+    architectures = []
+    avg_times = []
+    
+    for arch in sorted(arch_times.keys()):
+        architectures.append(arch)
+        avg_times.append(arch_times[arch] / arch_counts[arch])
+    
+    # Create bar chart
+    fig = go.Figure(data=[
+        go.Bar(
+            x=architectures, 
+            y=avg_times,
+            marker_color=['#1f77b4', '#ff7f0e', '#2ca02c']  # Different colors for each architecture
+        )
+    ])
+    
+    fig.update_layout(
+        title='Average Training Time by Architecture',
+        xaxis_title='Architecture',
+        yaxis_title='Time (seconds)',
+        showlegend=False
+    )
+    
+    return fig
+
+
 def get_best_models():
     """Find the best model file for each architecture from the database."""
     conn = sqlite3.connect('artifacts/training_history.db')
@@ -240,6 +308,9 @@ def train_new_model(architecture, epochs, batch_size):
         epochs = int(epochs)
         batch_size = int(batch_size)
         
+        # Start timing
+        start_time = time.time()
+        
         # Create model based on selected architecture
         if architecture == "MLP":
             new_model = create_mlp()
@@ -278,9 +349,11 @@ def train_new_model(architecture, epochs, batch_size):
             
             # Save metrics to database (get run_id on first epoch)
             if run_id is None:
+                # Calculate duration so far (for first epoch)
+                current_duration = time.time() - start_time
                 # Save training run first to get run_id
-                model_filename = save_training_run(architecture, epochs, batch_size, final_val_acc)
-                run_id = get_latest_run_id()  # Need to add this function
+                model_filename = save_training_run(architecture, epochs, batch_size, final_val_acc, current_duration)
+                run_id = get_latest_run_id()
             
             # Save epoch metrics
             save_epoch_metrics(run_id, epoch + 1, history.history['accuracy'][0], history.history['val_accuracy'][0])
@@ -297,8 +370,18 @@ def train_new_model(architecture, epochs, batch_size):
         save_model(new_model, model_path)
         print(f"Model saved to {model_path}")
         
+        # Calculate total training duration
+        total_duration = time.time() - start_time
+        
+        # Update duration in database
+        conn = sqlite3.connect('artifacts/training_history.db')
+        cursor = conn.cursor()
+        cursor.execute('UPDATE training_runs SET duration = ? WHERE run_id = ?', (total_duration, run_id))
+        conn.commit()
+        conn.close()
+        
         # Final summary
-        final_result = "\n".join(all_results) + f"\n\nTraining Complete!\nModel saved to: {model_path}\nSaved to database with Run ID {run_id}"
+        final_result = "\n".join(all_results) + f"\n\nTraining Complete!\nModel saved to: {model_path}\nSaved to database with Run ID {run_id}\nTotal time: {total_duration:.1f}s"
         yield final_result
         
     except Exception as e:
@@ -446,6 +529,9 @@ with gr.Blocks(title="MNIST Digit Classifier") as demo:
         # Accuracy chart
         accuracy_chart = gr.Plot(label="Training Accuracy Chart")
         
+        # Time comparison chart
+        time_chart = gr.Plot(label="Training Time Comparison")
+        
         # Load history and chart on button click
         refresh_button.click(
             fn=get_training_history,
@@ -454,6 +540,10 @@ with gr.Blocks(title="MNIST Digit Classifier") as demo:
         ).then(
             fn=create_accuracy_chart,
             outputs=accuracy_chart,
+            api_name=False
+        ).then(
+            fn=create_time_comparison_chart,
+            outputs=time_chart,
             api_name=False
         )
 

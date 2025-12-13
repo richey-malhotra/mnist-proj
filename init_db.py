@@ -33,10 +33,19 @@ def create_database():
             batch_size INTEGER,
             val_accuracy REAL,
             model_filename TEXT,
+            duration REAL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (model_id) REFERENCES models(model_id)
         )
     ''')
+    
+    # Add duration column if it doesn't exist (for Phase 15 upgrade)
+    try:
+        cursor.execute('ALTER TABLE training_runs ADD COLUMN duration REAL')
+        print("✓ Added duration column to training_runs table")
+    except sqlite3.OperationalError:
+        # Column already exists
+        pass
     
     # Metrics table - stores epoch-by-epoch training data
     cursor.execute('''

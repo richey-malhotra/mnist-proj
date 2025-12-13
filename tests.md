@@ -266,3 +266,30 @@ Prediction now runs against all trained model types and shows a comparison.
 ### Bugs found
 
 **Nothing major.** The comparison feature was straightforward since I already had the prediction code — just needed to run it through multiple models and format the output.
+---
+
+## Phase 15 — Accuracy Chart
+
+### What I tested
+
+Added a Plotly interactive bar chart showing accuracy for each model.
+
+### Tests
+
+| # | What I tried | Type | Expected | Actual | Pass? |
+|---|---|---|---|---|---|
+| 1 | Chart with 3 model types | Normal | 3 bars with correct accuracy | All correct, tooltips work | Yes |
+| 2 | Chart with 1 model type | Boundary | Single bar | Displayed fine | Yes |
+| 3 | Chart with duplicate architectures (e.g. 2 MLP runs) | Normal | Should show best or most recent | Shows most recent run per architecture | Yes |
+| 4 | Hover over bars for tooltips | Normal | Shows exact accuracy | Worked — shows to 2 decimal places | Yes |
+| 5 | Click Refresh to update chart after new training | Normal | Chart updates | Chart updated with new data | Yes |
+
+### Screenshots
+
+![Accuracy comparison chart with Plotly](screenshots/phase15_accuracy_chart.png)
+
+![Multi-model prediction comparison](screenshots/phase15_multi_model_predict.png)
+
+### Bugs found
+
+**Y-axis starts from 0 which makes differences look tiny.** Since all models score between 97-99%, the bars all look the same height when the y-axis goes from 0 to 100. Would be better to start from 95% or so to magnify the differences. I looked into Plotly's `range` setting for the y-axis but couldn't get it to work properly without cutting off the bar labels. Leaving it for now — the tooltips show the exact values anyway.
