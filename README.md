@@ -1,101 +1,55 @@
-# Phase 15: Accuracy Chart
+# Phase 16: Training Time Comparison Chart
 
 ## What Changed
 
-- Added `metrics` table for epoch-by-epoch accuracy data
-- Created accuracy chart with Plotly line graph and markers
-- Custom Keras callback saves metrics after each epoch
-- Extended History tab with chart alongside the training runs table
-- Used `.then()` to chain table and chart refreshes from one button
+- Added `time.time()` timing to measure training duration
+- Extended `training_runs` table with a `duration` column
+- Created bar chart showing average training time by architecture
+- Extended `.then()` callback chain to refresh all three History items from one button
 
-Phase 14 added multi-model prediction comparison. This phase adds a chart to the History tab - specifically an accuracy chart so I can spot patterns like overfitting, where training accuracy keeps rising but validation flattens or drops.
+I kept wondering which architecture was actually faster to train. Phase 15's History tab only showed accuracy numbers, nothing about speed. This phase answers that question properly.
 
-## Database Schema
+## Duration Tracking
 
-Needed a new `metrics` table because each training run has multiple epochs. Briefly considered jamming epoch data as JSON into the existing `training_runs` table - like, one big JSON string per row with all the epoch numbers and accuracies crammed in. But then I'd have to parse that string every time I wanted to read it, and you can't really do SQL queries on stuff that's buried inside a JSON blob. Separate table:
+Added a `duration` column to the existing `training_runs` table using ALTER TABLE. Wrapped it in try/except so it doesn't break if the column already exists. Thing is, databases from Phase 12-15 won't have this column, so it has to handle old databases that don't have this column yet.
 
-```sql
-CREATE TABLE IF NOT EXISTS metrics (
-    metric_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    run_id INTEGER,
-    epoch INTEGER,
-    train_accuracy REAL,
-    val_accuracy REAL,
-    FOREIGN KEY (run_id) REFERENCES training_runs(run_id)
-);
-```
+The timing is just `time.time()` before and after training. One thing I had to think about: the training run gets inserted into the database *before* training starts (so Phase 15's metric callback can reference the run_id), but duration isn't known until training finishes. So I INSERT first with NULL duration, then UPDATE it at the end.
 
-Storing raw Keras floats (like 0.93) and only multiplying by 100 for display. Almost stored percentages directly which would've been inconsistent with everything else. Glad I caught that early.
+Initially had the UPDATE in the wrong place - it was capturing the time after just the first epoch instead of all of them. Moved it to after the full training loop. Also forgot to `import time` at first, which was embarrassing. One of those errors where you know exactly what's wrong the moment you see it.
 
-## The Keras Callback
+## The Bar Chart
 
-Used a custom Keras callback class to write metrics after each epoch - my first time writing a Python class. Had to learn about `class`, `self`, `__init__()`, and inheritance (basing my class on an existing Keras one). The class overrides `on_epoch_end()` to save data to the database.
+Used Plotly bar chart, same approach as Phase 15's accuracy chart. Had to group runs by architecture and average the durations manually. The results are what you'd expect: MLP trains fastest, Deeper CNN slowest, Small CNN in between. Being able to actually see it is nice though.
 
-Two bugs:
-1. Saved epochs as 0-based (epoch 0, 1, 2…), which looked weird in the chart. Changed to `epoch + 1`.
-2. Used `logs.get('acc')` instead of `logs.get('accuracy')` and got NULL values in the database. Had to print out the actual log keys to find the right name. Wasted about 5 minutes.
+Looking at the chart, Small CNN seems like the sweet spot for most cases - you get most of the accuracy improvement without taking as long as the Deeper CNN to train.
 
-## Plotly Chart
-
-Started with `px.line` from Plotly Express but switched to `go.Figure()` with manual traces for more control over the layout. Added dots on each data point so you can see individual epochs, and set the hover to show both training and validation values at the same time. The chart only shows the latest training run - considered overlaying all runs but that gets messy with different epoch counts.
-
-If no training data exists, the function returns `None` and Gradio shows a blank plot. Not beautiful but it doesn't crash.
-
-## Wiring the UI
-
-Trickier than expected. Needed the refresh button to update both the table and the chart. Initially tried two separate `.click()` calls on the same button, but only one fired reliably. Found `.then()` in the Gradio docs which chains callbacks in sequence. That fixed it properly.
+Extended the `.then()` chain from Phase 15 to include this third chart. Three refreshes in sequence off one button: table → accuracy chart → time chart.
 
 ## Testing
 
-Ran `init_db.py` to create the metrics table (the existing DB doesn't update its tables automatically). Trained MLP for 3 epochs, checked the database in sqlite3 CLI and found 3 rows with sensible values. Chart appeared on refresh, hover matched the DB. Did a second run with 5 epochs to confirm it shows the new run. Deleted the DB and relaunched to test the empty state. Blank chart, no crashes.
+Ran a couple of training sessions per architecture, verified the database has duration values (not NULL), confirmed the chart shows correct averages. Deleted old runs to test the empty state, and it returns None without crashing.
 
-Plotly was new to me so it took a while to get my head round it, but now I think I could do more chart stuff without it taking ages.
+## Decisions
 
-## How It Works
+### Why `time.time()`
 
-### Opening a New Database Connection Every Time
+`time.time()` measures real elapsed time, meaning the actual seconds you sit there waiting. There's another option (`time.process_time()`) that only counts CPU time, but that felt misleading. If training takes 90 seconds of real time, that's what matters to the person using the app, even if the CPU was only busy for 60 of those seconds.
 
-Every time a metric gets saved, the code opens a new connection to the database, saves the data, and closes it again. For 20 epochs that's 20 separate connections. I could keep one connection open for the whole training run and that would be faster, but doing it this way means each epoch's data is saved straight away - if something crashes halfway through, the earlier epochs are already in the database.
+### Inserting Before Training Finishes
 
-### Hover Shows All Lines at Once
+The training run gets added to the database before training actually starts, because the per-epoch metrics (from Phase 15) need a run ID to link to. But the total duration isn't known until training finishes. So I INSERT first with a placeholder duration, then UPDATE it with the real time at the end. There's a brief moment where the database has an inaccurate duration, but nobody sees it because the History tab needs a manual refresh.
 
-I set the chart to show both the training and validation accuracy when you hover over a point, not just the nearest one. So hovering over epoch 3 shows both values side by side. Much more useful than having to hover over each line separately.
+### Averaging With Dictionaries
 
-### Using Lines and Dots Together
-
-Each line on the chart has dots at the actual data points. Without the dots, hovering would try to snap to positions between the real data which isn't helpful. The dots make it clear where the actual epoch values are.
-
-### Returning `None` for Empty Charts
-
-When there's no data yet, the function returns `None` instead of an empty chart. Gradio handles `None` by just showing a blank space, which looks cleaner than an empty chart with axes but no data.
-
-## File Structure
-
-```
-gradio_phase15/
-├── app_ui.py          # Main UI (420 lines, +70 from Phase 14)
-├── utils.py           # Preprocessing function (42 lines)
-├── models.py          # Model architectures (unchanged)
-├── init_db.py         # Database initialisation (80 lines, +10)
-├── requirements.txt   # Dependencies (+plotly)
-└── artifacts/
-    └── training_history.db
+```python
+arch_times = {}
+for arch, duration in data:
+    arch_times[arch] = arch_times.get(arch, 0) + duration
+    arch_counts[arch] = arch_counts.get(arch, 0) + 1
 ```
 
-## How to Run
+I'm computing averages manually with dictionaries instead of using SQL's `AVG()` or pandas. Partly because the SQL version would need a JOIN which I'm trying to avoid, and partly because I find Python loops easier to follow than complex queries. It's more code but I can actually read it.
 
-```bash
-pip install -r requirements.txt  # Now includes plotly
-python init_db.py                # Creates metrics table
-python app_ui.py
-```
+### Sorting the Bars
 
-## Differences from Phase 14
-
-| Aspect | Phase 14 | Phase 15 |
-|--------|----------|----------|
-| **History tab** | Table only | Table + accuracy chart |
-| **Epoch tracking** | Final accuracy only | Per-epoch train + val accuracy |
-| **Database tables** | models, training_runs | + metrics table |
-| **Visualisation** | None | Plotly line chart with markers |
-| **app_ui.py** | 350 lines | 420 lines (+70) |
+Architectures are sorted alphabetically so the bars always appear in the same order (Deeper CNN, MLP, Small CNN) no matter what order they were trained in. Otherwise the chart could rearrange itself between refreshes which would be confusing.

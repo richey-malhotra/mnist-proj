@@ -293,3 +293,22 @@ Added a Plotly interactive bar chart showing accuracy for each model.
 ### Bugs found
 
 **Y-axis starts from 0 which makes differences look tiny.** Since all models score between 97-99%, the bars all look the same height when the y-axis goes from 0 to 100. Would be better to start from 95% or so to magnify the differences. I looked into Plotly's `range` setting for the y-axis but couldn't get it to work properly without cutting off the bar labels. Leaving it for now — the tooltips show the exact values anyway.
+---
+
+## Phase 16 — Training Time Chart
+
+### What I tested
+
+Added a chart comparing how long each model takes to train.
+
+### Tests
+
+| # | What I tried | Type | Expected | Actual | Pass? |
+|---|---|---|---|---|---|
+| 1 | Compare training times across architectures | Normal | CNN should take longer than MLP | MLP: 8s, Small CNN: 45s, Deeper CNN: 92s — correct pattern | Yes |
+| 2 | Time chart updates after Refresh | Normal | New bars appear | Worked correctly | Yes |
+| 3 | Check time format | Normal | Seconds with 1 decimal | Displayed fine | Yes |
+
+### Bugs found
+
+Added the `duration` column to the database this phase. Training time is now tracked and saved with each run.
