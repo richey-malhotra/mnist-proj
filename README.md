@@ -1,55 +1,54 @@
-# Phase 16: Training Time Comparison Chart
+# Phase 17: Image Preview
 
 ## What Changed
 
-- Added `time.time()` timing to measure training duration
-- Extended `training_runs` table with a `duration` column
-- Created bar chart showing average training time by architecture
-- Extended `.then()` callback chain to refresh all three History items from one button
+- Added preprocessing visualisation: original and processed images shown side by side
+- Renamed `predict_with_comparison` to `predict_with_preview`
+- Function now returns three values: original image, preprocessed 28×28 image, predictions text
+- Predict tab layout updated with two image displays alongside results
 
-I kept wondering which architecture was actually faster to train. Phase 15's History tab only showed accuracy numbers, nothing about speed. This phase answers that question properly.
+Before this, uploading an image gave you a prediction, and you had no idea what happened to it. Now you can see exactly what the model receives after preprocessing.
 
-## Duration Tracking
+## Why This Matters
 
-Added a `duration` column to the existing `training_runs` table using ALTER TABLE. Wrapped it in try/except so it doesn't break if the column already exists. Thing is, databases from Phase 12-15 won't have this column, so it has to handle old databases that don't have this column yet.
+It's partly about trust. If someone uploads a photo of a digit and gets a wrong answer, they can see that the 28×28 version looks nothing like what they uploaded. The preprocessing squashes and inverts colours and sometimes the digit becomes unrecognisable. Showing that helps explain why it sometimes gets things wrong.
 
-The timing is just `time.time()` before and after training. One thing I had to think about: the training run gets inserted into the database *before* training starts (so Phase 15's metric callback can reference the run_id), but duration isn't known until training finishes. So I INSERT first with NULL duration, then UPDATE it at the end.
+It's good for debugging too. If a prediction is wrong, you can tell whether the problem is the model or the preprocessing. A digit that looks clear at 28×28 but still gets misclassified = model problem. A digit that's unrecognisable after resizing = preprocessing problem.
 
-Initially had the UPDATE in the wrong place - it was capturing the time after just the first epoch instead of all of them. Moved it to after the full training loop. Also forgot to `import time` at first, which was embarrassing. One of those errors where you know exactly what's wrong the moment you see it.
+## How I Did It
 
-## The Bar Chart
+The preprocessed numpy array needs converting back to a PIL Image for display. You multiply by 255 and cast to uint8 since the normalised model input (0-1) isn't directly displayable. Forgot that Gradio Image components want PIL not numpy, spent a few minutes on that.
 
-Used Plotly bar chart, same approach as Phase 15's accuracy chart. Had to group runs by architecture and average the durations manually. The results are what you'd expect: MLP trains fastest, Deeper CNN slowest, Small CNN in between. Being able to actually see it is nice though.
+If something goes wrong, the function returns `None, None, error_message` so the image boxes stay empty and the error appears in the text box. Returning three things at once (image, image, text) worked nicely. I might do it again if I need before/after views.
 
-Looking at the chart, Small CNN seems like the sweet spot for most cases - you get most of the accuracy improvement without taking as long as the Deeper CNN to train.
+The preprocessed image looks a bit blocky (28×28 rendered at display size) but that's the point - you see exactly what the model sees, pixels and all.
 
-Extended the `.then()` chain from Phase 15 to include this third chart. Three refreshes in sequence off one button: table → accuracy chart → time chart.
+## Layout
+
+The Predict tab needed rearranging. Image upload and button on the left column, original preview, preprocessed preview, and prediction results stacked on the right. It's a bit cramped but gets the point across.
 
 ## Testing
 
-Ran a couple of training sessions per architecture, verified the database has duration values (not NULL), confirmed the chart shows correct averages. Deleted old runs to test the empty state, and it returns None without crashing.
+Uploaded a few images, both previews display correctly. Tried an already-28×28 image (preview looks identical, which makes sense). Colour photo of a digit, and the colour disappears in the preprocessed version from the greyscale conversion, which is a nice way to actually see that preprocessing is happening. Quick phase overall.
 
-## Decisions
+## Why I Did It This Way
 
-### Why `time.time()`
-
-`time.time()` measures real elapsed time, meaning the actual seconds you sit there waiting. There's another option (`time.process_time()`) that only counts CPU time, but that felt misleading. If training takes 90 seconds of real time, that's what matters to the person using the app, even if the CPU was only busy for 60 of those seconds.
-
-### Inserting Before Training Finishes
-
-The training run gets added to the database before training actually starts, because the per-epoch metrics (from Phase 15) need a run ID to link to. But the total duration isn't known until training finishes. So I INSERT first with a placeholder duration, then UPDATE it with the real time at the end. There's a brief moment where the database has an inaccurate duration, but nobody sees it because the History tab needs a manual refresh.
-
-### Averaging With Dictionaries
+### Reversing Normalisation for Display
 
 ```python
-arch_times = {}
-for arch, duration in data:
-    arch_times[arch] = arch_times.get(arch, 0) + duration
-    arch_counts[arch] = arch_counts.get(arch, 0) + 1
+img_preprocessed = Image.fromarray((img_array * 255).astype('uint8'))
 ```
 
-I'm computing averages manually with dictionaries instead of using SQL's `AVG()` or pandas. Partly because the SQL version would need a JOIN which I'm trying to avoid, and partly because I find Python loops easier to follow than complex queries. It's more code but I can actually read it.
+The model input is normalised to 0-1 floats, but PIL and Gradio need 0-255 uint8 for display. Multiplying by 255 reverses the normalisation, then `astype('uint8')` truncates. There's a small precision issue: `0.5 * 255 = 127.5` truncates to `127`. You can't actually see the difference, but technically the displayed image isn't exactly what went in before normalisation.
 
-### Sorting the Bars
+### `interactive=False` on Display Images
 
-Architectures are sorted alphabetically so the bars always appear in the same order (Deeper CNN, MLP, Small CNN) no matter what order they were trained in. Otherwise the chart could rearrange itself between refreshes which would be confusing.
+```python
+original_image_display = gr.Image(label="Your Uploaded Image", interactive=False)
+```
+
+Without `interactive=False`, Gradio shows editing tools (crop, draw, clear) on the preview images, which would confuse people and could mess up what's being shown. They're just for display - the user shouldn't be able to edit them.
+
+### Why Every Return Needs Three Values
+
+Gradio maps each return value to the output boxes in order. If the function returns 2 values instead of 3, Gradio throws an error. That's why every place where something goes wrong carefully returns `None, None, error_message`, so it always returns 3 things to match what Gradio expects. `None` tells Gradio to leave that image box empty.

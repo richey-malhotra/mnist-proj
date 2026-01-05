@@ -1,6 +1,6 @@
 """
 MNIST Digit Recognition Project
-Phase 15: Accuracy Chart
+Phase 17: Image Preview
 """
 
 import warnings
@@ -388,25 +388,29 @@ def train_new_model(architecture, epochs, batch_size):
         yield f"Error during training: {str(e)}"
 
 
-def predict_with_comparison(image):
-    """
-    Predict digit using best models for each architecture.
-    Compares results side-by-side.
-    """
+def predict_with_preview(image):
+    """Predict digit using all best models and show the preprocessed image too."""
     if image is None:
-        return "Please upload an image."
+        return None, None, "Please upload an image."
     
     best_models = get_best_models()
     
     if not best_models:
-        return "No trained models found. Please train some models first!"
+        return None, None, "No trained models found. Please train some models first!"
     
-    # Preprocess image once
+    # Process images
     try:
+        # Original image (keep as-is for display)
+        original = Image.fromarray(image)
+        
+        # Preprocessed image (what model sees)
         img_array = preprocess_image(image)
-        img_array = np.expand_dims(img_array, axis=0)
+        img_preprocessed = Image.fromarray((img_array * 255).astype('uint8'))
+        
+        # Prepare for prediction
+        img_input = np.expand_dims(img_array, axis=0)
     except Exception as e:
-        return f"Error processing image: {e}"
+        return None, None, f"Error processing image: {e}"
     
     results = []
     predictions = []
@@ -418,13 +422,13 @@ def predict_with_comparison(image):
             model = load_model(model_path)
             
             # Predict
-            pred = model.predict(img_array, verbose=0)
+            pred = model.predict(img_input, verbose=0)
             digit = int(pred.argmax())
             confidence = float(pred[0][digit]) * 100
             
             predictions.append(digit)
             
-            # Format output (simple text, not complex Markdown)
+            # Format output
             results.append(f"{arch}: Predicted {digit} (Conf: {confidence:.1f}%)")
             
         except Exception as e:
@@ -436,7 +440,7 @@ def predict_with_comparison(image):
     elif predictions:
         results.append(f"\n⚠️ Disagreement: Models predict different digits")
         
-    return "\n".join(results)
+    return original, img_preprocessed, "\n".join(results)
 
 
 # Create Gradio interface with tabs
@@ -499,15 +503,23 @@ with gr.Blocks(title="MNIST Digit Classifier") as demo:
                 predict_button = gr.Button("Predict with All Models", variant="primary")
             
             with gr.Column(scale=1):
+                gr.Markdown("**Original Image**")
+                original_image_display = gr.Image(label="Your Uploaded Image", interactive=False)
+                
+                gr.Markdown("**Preprocessed Image**")
+                gr.Markdown("*What the model sees (28×28 greyscale)*")
+                preprocessed_image_display = gr.Image(label="Model Input", interactive=False)
+                
+                gr.Markdown("**Prediction Results**")
                 prediction_output = gr.Textbox(
-                    label="Prediction Results",
+                    label="Model Predictions",
                     lines=8
                 )
         
         predict_button.click(
-            fn=predict_with_comparison,
+            fn=predict_with_preview,
             inputs=[image_input],
-            outputs=prediction_output,
+            outputs=[original_image_display, preprocessed_image_display, prediction_output],
             api_name=False  # Disable API to avoid Gradio bug
         )
     

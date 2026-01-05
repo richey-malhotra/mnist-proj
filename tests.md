@@ -312,3 +312,22 @@ Added a chart comparing how long each model takes to train.
 ### Bugs found
 
 Added the `duration` column to the database this phase. Training time is now tracked and saved with each run.
+---
+
+## Phase 17 — Preprocessing Preview
+
+### What I tested
+
+Added an image preview showing the 28x28 processed version alongside the original.
+
+### Tests
+
+| # | What I tried | Type | Expected | Actual | Pass? |
+|---|---|---|---|---|---|
+| 1 | Upload a large image | Normal | Preview shows 28x28 greyscale version | Showed correctly, very pixelated but that's expected | Yes |
+| 2 | Upload an already 28x28 image | Boundary | Preview should look same as original | Looked identical | Yes |
+| 3 | Upload a colour image | Normal | Preview shows greyscale conversion | Converted correctly | Yes |
+
+### Bugs found
+
+**Preview image is very small in the UI.** The 28x28 preview is displayed at its native resolution which is tiny on screen. You have to squint to see it. I should probably scale it up for display, maybe to 140x140 or something. Haven't done this yet — it's cosmetic but annoying.
