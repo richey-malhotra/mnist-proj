@@ -1,29 +1,29 @@
-# Phase 17 Development Diary
+# Phase 18 Development Diary
 
-Added image preview so users can see what the model actually receives after preprocessing. Before this (basically since Phase 14's comparison feature), you'd upload an image and just get a prediction back with no idea what happened in between. You just had to trust it was doing the right thing.
+## Scatter Plot Chart
 
-## What I Changed
+Replaced Phase 16's bar chart with something more useful: a scatter plot showing accuracy vs training time for every run. The bar chart averaged everything together, so you couldn't see how different each run was. A scatter plot shows each run as a separate point so you can see patterns and outliers.
 
-Renamed `predict_with_comparison` to `predict_with_preview` and changed it from returning just text to returning three things: original image, preprocessed 28x28 image, and prediction results. The UI now shows both images side by side above the predictions.
+Each architecture gets its own colour (kept the same colour scheme: blue for MLP, orange for Small CNN, green for Deeper CNN) so you can immediately see how they cluster. The data comes from the same tables as before - just queried differently.
 
-Had to convert the preprocessed numpy array back to a PIL Image for display, which was slightly annoying. You multiply by 255 and cast to uint8 since the model input is normalised to 0-1. Had a type issue where Gradio wanted PIL images for display but I was returning numpy arrays. Quick fix but annoying. Also had to handle what happens when something goes wrong. If something goes wrong the function returns `None, None, error_message` instead of crashing, so the image boxes just stay empty.
+## How I Built It
 
-## Why I Added This
+Had to filter out runs where duration is NULL since some older runs from before Phase 16 don't have timing data. Used separate `go.Scatter()` traces per architecture because Plotly doesn't do categorical colours easily in a single trace, so you have to loop through the categories yourself and create a trace for each. More code than I'd like but it gives you full control over colour and legend labels.
 
-I kept thinking about what happens when someone uploads a photo and gets a wrong prediction. Without seeing the preprocessed version, they'd have no idea why. Now they can look at the tiny 28x28 image and go "oh, that looks nothing like what I drew". The squashing and colour inversion sometimes makes digits unrecognisable, so showing that at least explains the mistakes.
+Added hover tooltips showing exact values for each point. Plotly's hovertemplate is a bit fiddly (the formatting syntax is different from Python f-strings) but once it works it's really nice for exploring the data interactively.
 
-It's good for debugging too. If a prediction is wrong, you can look at the preprocessed image and see whether the problem is the model or the preprocessing. A digit that looks clear at 28x28 but still gets misclassified is a model problem. A digit that's unrecognisable after resizing is a preprocessing problem.
+## What It Shows
 
-## Layout Changes
+The patterns in the chart are really clear. You can see three distinct clusters - MLP in the bottom-left corner (quick but lower accuracy), Deeper CNN in the top-right (slow but most accurate), and Small CNN bridging the gap. What I didn't expect was how good Small CNN looks as a compromise. It's barely slower than MLP but gets much closer to Deeper CNN's accuracy. Wouldn't have spotted that just looking at raw numbers.
 
-The Predict tab needed rearranging to fit two image displays plus the prediction text. Ended up with the upload button on the left side, and the two image previews plus results stacked on the right. It's a tighter fit than before but it works well enough. The preprocessed image is tiny (28x28 rendered at display size) so it looks a bit blocky, but that's kind of the point - you can see exactly what the model sees.
+I also noticed the dots within each cluster aren't perfectly aligned - training the same architecture twice gives slightly different results each time. Makes sense because of the random weight initialisation, but it's interesting to actually see that variation on the chart rather than just knowing it theoretically.
+
+## Problems
+
+Main issue was NULL filtering. Old training runs from before duration tracking existed would crash the chart because you can't plot None values. Added a WHERE clause to exclude those. Also had to sort the architecture list before creating traces otherwise the legend order was random each time, which looked messy.
 
 ## Testing
 
-Uploaded a few images, checked both previews display. Tried an image that was already 28x28 (preview looks identical, which makes sense). Tested a colour photo too and you can see the colour drop out in the preview, which is a good sanity check that the preprocessing is doing its thing. Everything works. Quick phase.
+Trained a few models across all three architectures, confirmed points appear in the right places. Hover works. Refresh button updates the chart alongside the other two. No crashes with empty data.
 
-About an hour.
-
-## Reflection
-
-Small change code-wise but it was bugging me that I couldn't see what was happening to the image. Returning three things from one function (image, image, text) was really easy in Gradio. Good to know for later. Having the preprocessing visible also makes me more confident that the steps are correct because I can actually see what comes out of it.
+I think the scatter plot works better than the bar chart for this because you can see accuracy and time at the same time. The bar chart from Phase 16 showed averages, which is useful but you can't see what each run actually did. This shows what's actually happening better than averages did. Learning Plotly's scatter syntax was worth the time.

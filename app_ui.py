@@ -1,6 +1,6 @@
 """
 MNIST Digit Recognition Project
-Phase 17: Image Preview
+Phase 18: Model Performance Dashboard
 """
 
 import warnings
@@ -191,16 +191,16 @@ def create_accuracy_chart():
     return fig
 
 
-def create_time_comparison_chart():
-    """Create bar chart showing average training time by architecture."""
+def create_performance_dashboard():
+    """Create scatter plot showing accuracy vs training time for all models."""
     conn = sqlite3.connect('artifacts/training_history.db')
     cursor = conn.cursor()
     
-    # Get all runs with durations (no JOIN - query models separately)
+    # Get all runs with performance data (no JOIN - query models separately)
     cursor.execute('''
-        SELECT model_id, duration
+        SELECT model_id, val_accuracy, duration
         FROM training_runs
-        WHERE duration IS NOT NULL
+        WHERE duration IS NOT NULL AND val_accuracy IS NOT NULL
         ORDER BY model_id
     ''')
     
@@ -208,58 +208,78 @@ def create_time_comparison_chart():
     
     # Build data list with architecture names
     data = []
-    for model_id, duration in runs:
+    for model_id, val_acc, duration in runs:
         # Look up architecture for this model_id
         cursor.execute('SELECT architecture FROM models WHERE model_id = ?', (model_id,))
         arch_result = cursor.fetchone()
         if arch_result:
-            data.append((arch_result[0], duration))
+            data.append((arch_result[0], val_acc, duration))
     
     conn.close()
     
     if not data:
         return None
     
-    # Group by architecture and calculate averages
-    arch_times = {}
-    arch_counts = {}
-    
-    for arch, duration in data:
-        if arch not in arch_times:
-            arch_times[arch] = 0
-            arch_counts[arch] = 0
-        arch_times[arch] += duration
-        arch_counts[arch] += 1
-    
-    # Calculate averages
+    # Prepare data for plotting
     architectures = []
-    avg_times = []
+    accuracies = []
+    durations = []
+    colors = []
     
-    for arch in sorted(arch_times.keys()):
+    # Colour mapping for architectures
+    color_map = {
+        'MLP': '#1f77b4',      # Blue
+        'Small CNN': '#ff7f0e', # Orange  
+        'Deeper CNN': '#2ca02c' # Green
+    }
+    
+    for arch, acc, dur in data:
         architectures.append(arch)
-        avg_times.append(arch_times[arch] / arch_counts[arch])
+        accuracies.append(acc * 100)  # Convert to percentage
+        durations.append(dur)
+        colors.append(color_map.get(arch, '#9467bd'))  # Default purple
     
-    # Create bar chart
-    fig = go.Figure(data=[
-        go.Bar(
-            x=architectures, 
-            y=avg_times,
-            marker_color=['#1f77b4', '#ff7f0e', '#2ca02c']  # Different colors for each architecture
-        )
-    ])
+    # Create scatter plot
+    fig = go.Figure()
+    
+    # Add traces for each architecture
+    for arch in set(architectures):
+        arch_mask = [a == arch for a in architectures]
+        arch_accuracies = [accuracies[i] for i in range(len(accuracies)) if arch_mask[i]]
+        arch_durations = [durations[i] for i in range(len(durations)) if arch_mask[i]]
+        arch_colors = [colors[i] for i in range(len(colors)) if arch_mask[i]]
+        
+        fig.add_trace(go.Scatter(
+            x=arch_durations,
+            y=arch_accuracies,
+            mode='markers',
+            name=arch,
+            marker=dict(
+                size=10,
+                color=arch_colors[0] if arch_colors else '#9467bd',
+                line=dict(width=2, color='white')
+            ),
+            text=[f'{arch}<br>Accuracy: {acc:.1f}%<br>Time: {dur:.1f}s' 
+                  for acc, dur in zip(arch_accuracies, arch_durations)],
+            hovertemplate='%{text}<extra></extra>'
+        ))
     
     fig.update_layout(
-        title='Average Training Time by Architecture',
-        xaxis_title='Architecture',
-        yaxis_title='Time (seconds)',
-        showlegend=False
+        title='Model Performance: Accuracy vs Training Time',
+        xaxis_title='Training Time (seconds)',
+        yaxis_title='Validation Accuracy (%)',
+        hovermode='closest',
+        showlegend=True
     )
     
     return fig
 
 
 def get_best_models():
-    """Find the best model file for each architecture from the database."""
+    """
+    Find the best performing model for each architecture.
+    Returns a dictionary: {'Architecture': ('filename.keras', accuracy)}
+    """
     conn = sqlite3.connect('artifacts/training_history.db')
     cursor = conn.cursor()
     
@@ -542,7 +562,7 @@ with gr.Blocks(title="MNIST Digit Classifier") as demo:
         accuracy_chart = gr.Plot(label="Training Accuracy Chart")
         
         # Time comparison chart
-        time_chart = gr.Plot(label="Training Time Comparison")
+        time_chart = gr.Plot(label="Performance Dashboard")
         
         # Load history and chart on button click
         refresh_button.click(
@@ -554,7 +574,7 @@ with gr.Blocks(title="MNIST Digit Classifier") as demo:
             outputs=accuracy_chart,
             api_name=False
         ).then(
-            fn=create_time_comparison_chart,
+            fn=create_performance_dashboard,
             outputs=time_chart,
             api_name=False
         )
