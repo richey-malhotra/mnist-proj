@@ -1,6 +1,6 @@
 """
 MNIST Digit Recognition Project
-Phase 18: Model Performance Dashboard
+Phase 19: Custom Gradio Theme
 """
 
 import warnings
@@ -26,6 +26,20 @@ print("Loading MNIST dataset...")
 x_train = x_train.astype('float32') / 255.0
 x_test = x_test.astype('float32') / 255.0
 print(f"Dataset loaded: {x_train.shape[0]} training images, {x_test.shape[0]} test images")
+
+
+# Create custom theme for professional look
+custom_theme = gr.themes.Soft(
+    primary_hue="blue",
+    secondary_hue="slate",
+    neutral_hue="slate",
+    font=("Inter", "sans-serif")
+).set(
+    button_primary_background_fill="#2E86AB",
+    button_primary_background_fill_hover="#236B8E",
+    block_title_text_weight="600",
+    block_label_text_weight="500"
+)
 
 
 def save_training_run(architecture, epochs, batch_size, val_accuracy, duration=None):
@@ -464,9 +478,9 @@ def predict_with_preview(image):
 
 
 # Create Gradio interface with tabs
-with gr.Blocks(title="MNIST Digit Classifier") as demo:
-    gr.Markdown("# MNIST Digit Classifier")
-    gr.Markdown("Train new models or test predictions on handwritten digits")
+with gr.Blocks(theme=custom_theme, title="MNIST Digit Classifier") as demo:
+    gr.Markdown("# 🔢 MNIST Digit Recognition")
+    gr.Markdown("Train and compare neural networks for handwritten digit classification")
     
     with gr.Tab("Train"):
         gr.Markdown("### Train a New Model")

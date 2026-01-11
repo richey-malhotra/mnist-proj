@@ -1,60 +1,67 @@
-# Phase 18: Training Time vs Accuracy Chart
+# Phase 19: Custom Gradio Theme
 
 ## What Changed
 
-- Replaced Phase 16's bar chart with a scatter plot showing accuracy vs training time
-- Each architecture gets its own colour (MLP=blue, Small CNN=orange, Deeper CNN=green)
-- You can hover over each dot to see the exact numbers for that run
-- Each point is one training run, not an average
+- Applied `gr.themes.Soft` as the base theme with blue primary colour (#2E86AB)
+- Changed the font to Inter because it looks better than the default
+- Customised button colours and text weights with `.set()` chaining
+- Updated the app header text while I was at it
 
-The bar chart from Phase 16 averaged everything together, which hid how different each run actually was. A scatter plot shows each run as a separate point so you can see patterns and outliers.
+Quick visual cleanup. Coming off Phase 18's scatter plot work, the default grey Gradio theme was starting to look out of place next to the Plotly charts. No functional changes at all, purely appearance.
 
-## What It Shows
+## Choosing a Theme
 
-The results are really interesting. MLP runs cluster bottom-left (fast, 95-96%), Deeper CNN goes top-right (slow, ~98.5%), Small CNN sits in the middle. Looking at it, Small CNN is probably the best trade-off for most situations - you get most of the accuracy improvement for a fraction of the extra training time. Would not have noticed that pattern just from reading numbers in a table.
+Gradio has a handful of built-in themes. Tried Default (boring), Monochrome (too stark), Glass (cool but a bit much), and Soft. Soft won - rounded corners and nice shadows - looks good without being over the top. It's the kind of thing you'd see on a real web app rather than a demo page.
 
-The dots for each architecture aren't all in the exact same spot either. The same architecture trained twice doesn't always give exactly the same result. The randomness in weight initialisation and batch ordering means each run is slightly different. Expected, but seeing it visually makes it more real.
+## Customisation
 
-## How I Built It
+Used `gr.themes.Soft(primary_hue="blue", ...)` as the base and customised it:
+- Primary colour set to #2E86AB because I wanted something that looked nice without being boring
+- Font changed to Inter via a tuple `("Inter", "sans-serif")` - not a plain string like CSS, which tripped me up briefly
+- Button backgrounds, hover colours, and text weights tweaked with `.set()` chaining
+- Bumped up weights for block titles and labels so headings stand out from body text
 
-Plotly doesn't do colouring each architecture differently easily in a single trace, so the code loops through architectures and adds a `go.Scatter()` for each one. More code than I'd like but it gives full control over colour and legend labels.
+The `.set()` chaining after the theme constructor isn't obvious from the docs. Had to look at examples on the Gradio GitHub to figure out the syntax.
 
-Plotly's `hovertemplate` is fiddly - the formatting syntax is different from Python f-strings, but once it works it's really nice for exploring the data interactively.
+## Reflection
 
-## Problems
+This doesn't change any functionality but it makes the app feel way more finished. The difference between a default grey Gradio app and one with actual colours and a proper font is massive. I want it to look decent when someone first opens it, not like I just left everything on default settings.
 
-Old training runs from before Phase 16's duration tracking existed have NULL duration values, which crash the chart. Added a `WHERE` clause to filter those out. Also had to sort the architecture list before creating traces otherwise the legend order was random each time, which looked messy.
+Should've done it earlier honestly, but it also didn't make sense until the features were mostly in place. I kept putting it off because I was still changing things every phase. About 45 minutes, mostly trying different colour combinations.
 
-## Testing
+## How It Works
 
-Trained across all three architectures, confirmed points appear in the right places. Hover works. Refresh button updates the chart alongside the other two. No crashes with empty data.
-
-## Things Worth Explaining
-
-### Different Hover Behaviour From Phase 15
-
-Phase 15's line chart shows all values at the same x-position when you hover. This scatter plot just shows the nearest point instead. Makes sense because the line chart has multiple lines sharing the same x-axis (epochs), so you want to compare them. The scatter plot has dots scattered everywhere so you just want to see whichever one you're closest to.
-
-### Hiding the Extra Hover Box
+### Why Both Hues Are Slate
 
 ```python
-hovertemplate='%{text}<extra></extra>'
+custom_theme = gr.themes.Soft(
+    primary_hue="blue",
+    secondary_hue="slate",
+    neutral_hue="slate",
+    ...
+)
 ```
 
-I had to look this up. The `<extra></extra>` bit removes a second tooltip box that Plotly adds by default showing the trace name. Without it, every hover would show the architecture name twice: once in my custom text and once in Plotly's default box. Took me a while to find this in the Plotly docs.
+Both `secondary_hue` and `neutral_hue` are set to `"slate"`. I tried different ones but slate for both looked the cleanest. Secondary is for things like form borders, neutral is for backgrounds. Using the same hue for both keeps everything looking the same, and since I'm the only user most of the controls are always active anyway so it doesn't really matter.
 
-### White Borders on the Dots
-
-Each dot has a white border (`line=dict(width=2, color='white')`). This makes it easier to see individual dots when they're close together, because without it, overlapping same-colour dots merge into an indistinct blob. `size=10` is large enough to click on but not so big that they cover each other up.
-
-### Fallback Purple for Unknown Architectures
+### Hover Colour
 
 ```python
-color_map.get(arch, '#9467bd')  # Default purple
+button_primary_background_fill="#2E86AB",
+button_primary_background_fill_hover="#236B8E",
 ```
 
-If a new architecture is added without updating the colour map, it gets purple instead of crashing with `KeyError`. Just in case I add more architectures later.
+#236B8E is a slightly darker version of #2E86AB. I just picked a colour that looked noticeably darker without being a completely different shade. I just wanted the hover to look obviously different from the normal button without being a totally new colour.
 
-### Why I Used Separate Lists
+### Font-Weight Scale
 
-The chart is built from four parallel lists (architectures, accuracies, durations, colours). A pandas DataFrame or list of dicts would be safer - with separate lists you could accidentally add to one and forget another if one append is missed. I kept the simple approach because the SQL query already comes back as separate columns, so it was easier to just keep them as separate lists rather than converting everything.
+```python
+block_title_text_weight="600",   # Semi-bold
+block_label_text_weight="500"    # Medium
+```
+
+600 is semi-bold, 500 is medium. One step heavier than the labels so titles stand out a bit, but neither of them is properly bold. Looks better than making everything bold.
+
+### Loading MNIST Once at Startup
+
+MNIST loads once when the app starts and stays in memory the whole time. Training reuses it without reloading. This does use up memory permanently, but for a local app where it's just me using it, that's way better than reloading and re-normalising 60,000 images every time someone clicks Train.

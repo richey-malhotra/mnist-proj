@@ -1,29 +1,25 @@
-# Phase 18 Development Diary
+# Phase 19 Development Diary
 
-## Scatter Plot Chart
+Quick one today - applied a custom theme to make the app look less like a default Gradio demo and more like something you'd actually want to use. Coming off Phase 18's scatter plot work, the default grey theme was starting to look out of place next to the Plotly charts.
 
-Replaced Phase 16's bar chart with something more useful: a scatter plot showing accuracy vs training time for every run. The bar chart averaged everything together, so you couldn't see how different each run was. A scatter plot shows each run as a separate point so you can see patterns and outliers.
+## Choosing a Theme
 
-Each architecture gets its own colour (kept the same colour scheme: blue for MLP, orange for Small CNN, green for Deeper CNN) so you can immediately see how they cluster. The data comes from the same tables as before - just queried differently.
+Gradio has a handful of built-in themes. I tried Default (boring), Monochrome (too stark), Glass (cool but a bit much for this project), and Soft. Soft won because it has rounded corners and nice shadows - looks good without being over the top. It's the kind of thing you'd see on a real web app rather than a demo page.
 
-## How I Built It
+## What I Changed
 
-Had to filter out runs where duration is NULL since some older runs from before Phase 16 don't have timing data. Used separate `go.Scatter()` traces per architecture because Plotly doesn't do categorical colours easily in a single trace, so you have to loop through the categories yourself and create a trace for each. More code than I'd like but it gives you full control over colour and legend labels.
+Went with `gr.themes.Soft` as the base and customised the primary colour to a blue (#2E86AB) because I wanted something that looked nice without being boring. Changed the font to Inter, which is a clean-looking font that works for everything. Also bumped up the text weights for block titles and labels so headings and labels actually stand out from the body text.
 
-Added hover tooltips showing exact values for each point. Plotly's hovertemplate is a bit fiddly (the formatting syntax is different from Python f-strings) but once it works it's really nice for exploring the data interactively.
-
-## What It Shows
-
-The patterns in the chart are really clear. You can see three distinct clusters - MLP in the bottom-left corner (quick but lower accuracy), Deeper CNN in the top-right (slow but most accurate), and Small CNN bridging the gap. What I didn't expect was how good Small CNN looks as a compromise. It's barely slower than MLP but gets much closer to Deeper CNN's accuracy. Wouldn't have spotted that just looking at raw numbers.
-
-I also noticed the dots within each cluster aren't perfectly aligned - training the same architecture twice gives slightly different results each time. Makes sense because of the random weight initialisation, but it's interesting to actually see that variation on the chart rather than just knowing it theoretically.
+Applied the theme to `gr.Blocks()` and updated the header text while I was there. Nothing complicated code-wise.
 
 ## Problems
 
-Main issue was NULL filtering. Old training runs from before duration tracking existed would crash the chart because you can't plot None values. Added a WHERE clause to exclude those. Also had to sort the architecture list before creating traces otherwise the legend order was random each time, which looked messy.
+Surprisingly few. The font parameter syntax is a tuple not a string (`("Inter", "sans-serif")`) which tripped me up briefly - I thought it would be just a string like CSS. The button colour customisation uses `.set()` chained after the theme constructor, which isn't obvious from the docs. Had to look at examples on the Gradio GitHub to figure that out.
 
-## Testing
+## Reflection
 
-Trained a few models across all three architectures, confirmed points appear in the right places. Hover works. Refresh button updates the chart alongside the other two. No crashes with empty data.
+Purely cosmetic but it makes such a difference. Before this the app looked like every other Gradio demo you see online - grey everything, default font. Now it actually looks like something I put effort into. Probably should of done this earlier but I kept telling myself features matter more than looks.
 
-I think the scatter plot works better than the bar chart for this because you can see accuracy and time at the same time. The bar chart from Phase 16 showed averages, which is useful but you can't see what each run actually did. This shows what's actually happening better than averages did. Learning Plotly's scatter syntax was worth the time.
+In hindsight I wish I'd themed it sooner, but there wasn't much point when I was still adding and rearranging things every phase. At least now the features are mostly settled and I can style it properly without redoing the work later.
+
+About 45 minutes. Most of that was trying different colour combinations until #2E86AB looked right.
