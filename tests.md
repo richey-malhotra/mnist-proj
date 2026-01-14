@@ -350,3 +350,38 @@ Added a scatter plot showing training time vs accuracy trade-off.
 ### Bugs found
 
 Nothing. The scatter plot was pretty simple to build using Plotly express.
+---
+
+## Phase 20 — Error Handling and Drawing Input
+
+### What I tested
+
+This was a big one — added error handling, input validation, and a canvas for drawing digits.
+
+### Tests
+
+| # | What I tried | Type | Expected | Actual | Pass? |
+|---|---|---|---|---|---|
+| 1 | Click Predict with no image uploaded | Erroneous | Error message | "Please upload an image" — nice and clear | Yes |
+| 2 | Click Predict with no drawing on canvas | Erroneous | Error message | "Please draw a digit first" | Yes |
+| 3 | Draw a 4 and predict | Normal | Predicts 4 | Got it right (99.3% confidence) | Yes |
+| 4 | Draw a 2 in the corner of the canvas | Boundary | Might not predict correctly | Predicted 7 — wrong, because the digit was off-centre | Known issue |
+| 5 | Upload a text file instead of an image | Erroneous | Should reject or show error | Error message appeared — handled gracefully | Yes |
+| 6 | Upload an extremely large image (5000x5000) | Boundary | Should resize and work | Worked but took about 2 seconds to process | Yes |
+| 7 | Test all 10 digits (0-9) via drawing | Normal | Most should predict correctly | 8 out of 10 correct. Got 1 and 7 mixed up | Mostly |
+
+### Screenshots
+
+![Drawing digit input tab](screenshots/phase20_draw_tab.png)
+
+![Prediction with preprocessing preview](screenshots/phase20_prediction_with_preview.png)
+
+![Training history with charts](screenshots/phase20_history_chart.png)
+
+### Bugs found
+
+**Drawing recognition is inconsistent for off-centre digits.** If you draw in the corner of the canvas instead of the middle, the model often gets it wrong. This is because MNIST digits are all centred in 28x28 images. My preprocessing just resizes — it doesn't try to centre the digit. To fix this properly I'd need to find the bounding box of the drawn strokes and centre them, but that's quite complex. Documenting as a known limitation.
+
+**Drawing canvas brush size is quite thick.** The default Gradio Sketchpad has a thick brush which makes it hard to draw fine details. Digits like 1 come out looking like a thick line and sometimes get confused with 7. I tried adjusting the brush width in Gradio's settings but it doesn't seem to expose that easily. Not fixed.
+
+**Drawing doesn't work well on mobile/tablet.** The touch input on a phone is laggy and imprecise. Since the app is designed for desktop use I'm not going to fix this but thought I should mention it.

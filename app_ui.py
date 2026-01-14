@@ -1,6 +1,6 @@
 """
 MNIST Digit Recognition Project
-Phase 19: Custom Gradio Theme
+Phase 20: Error Handling + Input Validation + Drawing Input
 """
 
 import warnings
@@ -422,6 +422,151 @@ def train_new_model(architecture, epochs, batch_size):
         yield f"Error during training: {str(e)}"
 
 
+def predict_with_validation(input_method, uploaded_image, drawn_image):
+    """Predict digit from uploaded or drawn image."""
+    try:
+        # Determine which input to use
+        if input_method == "Upload Image":
+            if uploaded_image is None:
+                # Return blank images for error display
+                blank_image = Image.new('L', (28, 28), 255)
+                return blank_image, blank_image, "❌ Please upload an image first."
+            image = uploaded_image
+            input_type = "uploaded"
+        else:  # Draw Digit
+            if drawn_image is None or isinstance(drawn_image, bool):
+                # Return blank images for error display
+                blank_image = Image.new('L', (28, 28), 255)
+                return blank_image, blank_image, "❌ Please draw a digit on the canvas first."
+            
+            # Sketchpad returns a dict with 'composite' key containing the image
+            if isinstance(drawn_image, dict):
+                if 'composite' in drawn_image and drawn_image['composite'] is not None:
+                    image = drawn_image['composite']
+                else:
+                    blank_image = Image.new('L', (28, 28), 255)
+                    return blank_image, blank_image, "❌ Please draw a digit on the canvas first."
+            else:
+                image = drawn_image
+            input_type = "drawn"
+        
+        # Validate the image has content
+        if image is None:
+            blank_image = Image.new('L', (28, 28), 255)
+            return blank_image, blank_image, f"❌ No {input_type} image provided."
+        
+        # Check if image is a valid image type (not boolean or other invalid type)
+        if isinstance(image, bool):
+            blank_image = Image.new('L', (28, 28), 255)
+            return blank_image, blank_image, f"❌ Invalid {input_type} image format. Please try again."
+        
+        # Check if image has any content (not completely empty/white)
+        try:
+            img_array = np.array(image)
+            # Convert to greyscale if needed
+            if len(img_array.shape) == 3:
+                img_array = np.mean(img_array, axis=2)
+            
+            # Check if image is mostly empty (all white pixels)
+            if np.mean(img_array) > 250:  # Very light, probably empty
+                blank_image = Image.new('L', (28, 28), 255)
+                return blank_image, blank_image, f"❌ {input_type.capitalize()} image appears to be empty. Please provide a clearer digit."
+        except Exception as e:
+            blank_image = Image.new('L', (28, 28), 255)
+            return blank_image, blank_image, f"❌ Error processing {input_type} image: {str(e)}"
+        
+        # Check if any models exist
+        best_models = get_best_models()
+        if not best_models:
+            blank_image = Image.new('L', (28, 28), 255)
+            return blank_image, blank_image, "❌ No trained models found. Please train some models in the Train tab first."
+        
+        # Process images
+        try:
+            # Original image (keep as-is for display)
+            original = Image.fromarray(image)
+            
+            # For drawn images, invert colours (Sketchpad draws black on white, MNIST expects white on black)
+            if input_type == "drawn":
+                # Invert the image before preprocessing
+                img_array = np.array(image)
+                if len(img_array.shape) == 3:
+                    img_array = np.mean(img_array, axis=2)
+                img_array = 255 - img_array  # Invert
+                image = img_array.astype('uint8')
+            
+            # Preprocessed image (what model sees)
+            img_input = preprocess_image(image)
+            img_preprocessed = Image.fromarray((img_input * 255).astype('uint8'))
+        except Exception as e:
+            blank_image = Image.new('L', (28, 28), 255)
+            return blank_image, blank_image, f"❌ Error processing image: {str(e)}"
+        
+        results_lines = []  # final strings
+        model_rows = []     # structured data for sorting
+        predictions = []
+
+        for arch, (filename, accuracy) in best_models.items():
+            try:
+                model_path = f'artifacts/{filename}'
+                model = load_model(model_path)
+                prediction = model.predict(img_input.reshape(1, 28, 28), verbose=0)
+                probs = prediction[0]
+                digit = int(probs.argmax())
+                confidence = float(probs[digit]) * 100
+                predictions.append(digit)
+                top_probs = sorted(enumerate(probs), key=lambda x: x[1], reverse=True)[:5]
+                model_rows.append({
+                    'arch': arch,
+                    'digit': digit,
+                    'confidence': confidence,
+                    'top_probs': top_probs
+                })
+            except Exception as e:
+                # Store error as very low confidence so it sinks to bottom
+                model_rows.append({
+                    'arch': arch,
+                    'digit': None,
+                    'confidence': -1.0,
+                    'top_probs': [],
+                    'error': str(e)
+                })
+
+        # Sort models by confidence descending
+        sorted_models = sorted(model_rows, key=lambda m: m['confidence'], reverse=True)
+        if sorted_models:
+            top_model = sorted_models[0]
+            if top_model.get('confidence', -1) >= 0:
+                results_lines.append(
+                    f"➡ Top model: {top_model['arch']} predicted {top_model['digit']} ({top_model['confidence']:.1f}% confidence)"
+                )
+
+        # Add each model line (winner gets a star)
+        for idx, m in enumerate(sorted_models):
+            if 'error' in m:
+                results_lines.append(f"{m['arch']}: error ({m['error']})")
+                continue
+            top_str = ", ".join([f"{d}:{p*100:.1f}%" for d, p in m['top_probs']])
+            prefix = "⭐ " if idx == 0 else "• "
+            results_lines.append(
+                f"{prefix}{m['arch']}: {m['digit']} ({m['confidence']:.1f}%) | top digits → {top_str}"
+            )
+
+        # Consensus / disagreement note
+        clean_preds = [m['digit'] for m in sorted_models if 'error' not in m and m['digit'] is not None]
+        if clean_preds:
+            if len(set(clean_preds)) == 1 and len(clean_preds) > 1:
+                results_lines.append("✅ All models agree")
+            elif len(set(clean_preds)) > 1:
+                results_lines.append("⚠️ Models disagree")
+
+        return original, img_preprocessed, "\n".join(results_lines)
+    
+    except Exception as e:
+        blank_image = Image.new('L', (28, 28), 255)
+        return blank_image, blank_image, f"❌ Unexpected error during prediction: {str(e)}"
+
+
 def predict_with_preview(image):
     """Predict digit using all best models and show the preprocessed image too."""
     if image is None:
@@ -528,33 +673,71 @@ with gr.Blocks(theme=custom_theme, title="MNIST Digit Classifier") as demo:
         )
     
     with gr.Tab("Predict"):
-        gr.Markdown("### Upload Image for Prediction")
-        gr.Markdown("Upload a handwritten digit image to see predictions from your best models.")
+        gr.Markdown("### Digit Prediction")
+        gr.Markdown("Upload an image or draw a digit to see predictions from your best models.")
         
-        with gr.Row():
-            with gr.Column(scale=1):
-                image_input = gr.Image(label="Upload Digit Image")
-                predict_button = gr.Button("Predict with All Models", variant="primary")
+        with gr.Tabs():
+            with gr.TabItem("Upload Image"):
+                gr.Markdown("**Upload a digit image**")
+                
+                with gr.Row():
+                    with gr.Column(scale=1):
+                        image_input = gr.Image(label="Upload Digit Image")
+                        upload_predict_button = gr.Button("Predict with All Models", variant="primary")
+                    
+                    with gr.Column(scale=1):
+                        gr.Markdown("**Original Image**")
+                        upload_original_display = gr.Image(label="Your Input", interactive=False)
+                        
+                        gr.Markdown("**Preprocessed Image**")
+                        gr.Markdown("*What the model sees (28×28 greyscale)*")
+                        upload_preprocessed_display = gr.Image(label="Model Input", interactive=False)
+                        
+                        gr.Markdown("**Prediction Results**")
+                        upload_prediction_output = gr.Textbox(
+                            label="Model Predictions",
+                            lines=8
+                        )
             
-            with gr.Column(scale=1):
-                gr.Markdown("**Original Image**")
-                original_image_display = gr.Image(label="Your Uploaded Image", interactive=False)
+            with gr.TabItem("Draw Digit"):
+                gr.Markdown("**Draw a digit on the canvas**")
                 
-                gr.Markdown("**Preprocessed Image**")
-                gr.Markdown("*What the model sees (28×28 greyscale)*")
-                preprocessed_image_display = gr.Image(label="Model Input", interactive=False)
-                
-                gr.Markdown("**Prediction Results**")
-                prediction_output = gr.Textbox(
-                    label="Model Predictions",
-                    lines=8
-                )
+                with gr.Row():
+                    with gr.Column(scale=1):
+                        sketch_input = gr.Sketchpad(
+                            label="Draw Digit (28×28 canvas)",
+                            height=280,
+                            width=280
+                        )
+                        draw_hint = gr.Markdown("*Draw a digit from 0-9 on the canvas above*")
+                        draw_predict_button = gr.Button("Predict with All Models", variant="primary")
+                    
+                    with gr.Column(scale=1):
+                        gr.Markdown("**Original Image**")
+                        draw_original_display = gr.Image(label="Your Input", interactive=False)
+                        
+                        gr.Markdown("**Preprocessed Image**")
+                        gr.Markdown("*What the model sees (28×28 greyscale)*")
+                        draw_preprocessed_display = gr.Image(label="Model Input", interactive=False)
+                        
+                        gr.Markdown("**Prediction Results**")
+                        draw_prediction_output = gr.Textbox(
+                            label="Model Predictions",
+                            lines=8
+                        )
         
-        predict_button.click(
-            fn=predict_with_preview,
+        upload_predict_button.click(
+            fn=lambda img: predict_with_validation("Upload Image", img, None),
             inputs=[image_input],
-            outputs=[original_image_display, preprocessed_image_display, prediction_output],
-            api_name=False  # Disable API to avoid Gradio bug
+            outputs=[upload_original_display, upload_preprocessed_display, upload_prediction_output],
+            api_name=False
+        )
+        
+        draw_predict_button.click(
+            fn=lambda img: predict_with_validation("Draw Digit", None, img),
+            inputs=[sketch_input],
+            outputs=[draw_original_display, draw_preprocessed_display, draw_prediction_output],
+            api_name=False
         )
     
     with gr.Tab("History"):
@@ -597,7 +780,7 @@ with gr.Blocks(theme=custom_theme, title="MNIST Digit Classifier") as demo:
 if __name__ == "__main__":
     print("\nStarting MNIST Classifier interface...")
     print("- Train tab: Configure and train new models")
-    print("- Predict tab: Upload images for digit recognition")
+    print("- Predict tab: Upload images or draw digits for recognition")
     print("- History tab: View all training runs")
     print("\nOpen http://localhost:7860 in your browser\n")
     demo.launch()

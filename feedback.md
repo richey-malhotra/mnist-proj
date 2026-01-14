@@ -167,3 +167,49 @@ Petros's scatter plot suggestion makes sense — it would show the trade-off bet
 
 - Add a training time comparison chart
 - Look into a scatter plot for time vs accuracy (the dashboard idea)
+---
+
+## Phase 20 — Lefteris and Yiannis test it themselves (January)
+
+### When and how
+
+Sent Lefteris and Yiannis the Gradio share link so they could try the app themselves from Greece. Watched their screens over FaceTime while they tested it. Yiannis's connection kept dropping so we had to restart the call twice. This was the first time someone other than me actually used the app properly.
+
+### What they could see
+
+Pretty much the complete app — training, prediction, drawing, history, charts. This was the first time they tried it themselves rather than watching me use it.
+
+### What Lefteris said
+
+"I tried uploading something and then clicking predict without choosing a file and it crashed. Like the whole page showed an error."
+
+This was BEFORE I'd finished the error handling. He was testing an earlier version I'd shared a few days prior. I told him I was literally working on fixing that exact problem.
+
+"Also what happens if I upload a photo of my face instead of a digit?" He actually tried it and it predicted 6 which was hilarious. I explained the model doesn't know what a digit looks like — it just picks the most likely of the 10 options regardless of what you give it.
+
+"One more thing — the drawing thing is fun but I drew a 2 and it thought it was a 7. My 2 did look a bit weird though to be fair."
+
+He finished with "so when are you going to make the phone app version?" (He's still going on about the phone thing from Phase 5.) I told him to stop asking.
+
+### What Yiannis said
+
+"I noticed there's an image preview that shows what the model sees, but I didn't spot it at first. It's quite small. Could you make it bigger or put a label that says 'this is what the model processes'?"
+
+He also said: "The drawing is cool. I drew a 4 and it got it right. But then I drew it in the top corner instead of the middle and it had no idea. Is that a bug or just how it works?"
+
+"Overall it's actually quite polished. Way better than my Java project was at this stage."
+
+He suggested I should add a "clear" button that's more prominent on the drawing canvas. There is one but you have to look for it. Fair point but by this stage I was running out of time to add UI tweaks.
+
+### My thoughts
+
+Lefteris finding the crash was actually useful because it confirmed I needed the error handling I was already building. The non-digit upload thing (his face) is a known limitation — the model doesn't know what a digit is, it just picks the most likely of the 10 options regardless.
+
+Yiannis's point about the preview being hard to notice is fair but I'm running out of time to make cosmetic changes. And the corner-drawing thing is expected — MNIST digits are centred, so off-centre input confuses it. That's documented as a limitation in my testing log.
+
+The clear button visibility and the preview size are both valid points I'm not going to act on. I need to finish the remaining features and write up.
+
+### What I'll do next
+
+- Finish the error handling (already in progress)
+- Make sure the empty states have proper messages so the app never just shows a blank screen
