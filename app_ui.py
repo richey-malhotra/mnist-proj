@@ -151,32 +151,80 @@ def save_epoch_metrics(run_id, epoch, train_accuracy, val_accuracy):
 
 def create_accuracy_chart():
     """Create accuracy timeline for latest training run."""
-    conn = sqlite3.connect('artifacts/training_history.db')
-    cursor = conn.cursor()
-    
-    # Get latest run
-    cursor.execute('SELECT run_id FROM training_runs ORDER BY run_id DESC LIMIT 1')
-    result = cursor.fetchone()
-    
-    if not result:
+    try:
+        conn = sqlite3.connect('artifacts/training_history.db')
+        cursor = conn.cursor()
+        
+        # Get latest run
+        cursor.execute('SELECT run_id FROM training_runs ORDER BY run_id DESC LIMIT 1')
+        result = cursor.fetchone()
+        
+        if not result:
+            conn.close()
+            # Show empty state message
+            fig = go.Figure()
+            fig.add_annotation(
+                text="No training history yet<br><br>Train a model in the Train tab to see accuracy charts!",
+                xref="paper", yref="paper",
+                x=0.5, y=0.5,
+                showarrow=False,
+                font=dict(size=16, color="#666666"),
+                align="center"
+            )
+            fig.update_layout(
+                xaxis=dict(visible=False),
+                yaxis=dict(visible=False),
+                height=400
+            )
+            return fig
+        
+        run_id = result[0]
+        
+        # Get metrics for this run
+        cursor.execute('''
+            SELECT epoch, train_accuracy, val_accuracy
+            FROM metrics
+            WHERE run_id = ?
+            ORDER BY epoch
+        ''', (run_id,))
+        
+        data = cursor.fetchall()
         conn.close()
-        return None
-    
-    run_id = result[0]
-    
-    # Get metrics for this run
-    cursor.execute('''
-        SELECT epoch, train_accuracy, val_accuracy
-        FROM metrics
-        WHERE run_id = ?
-        ORDER BY epoch
-    ''', (run_id,))
-    
-    data = cursor.fetchall()
-    conn.close()
-    
-    if not data:
-        return None
+        
+        if not data:
+            # Metrics missing for this run
+            fig = go.Figure()
+            fig.add_annotation(
+                text="No epoch metrics found for latest run<br><br>Train a new model to generate metrics",
+                xref="paper", yref="paper",
+                x=0.5, y=0.5,
+                showarrow=False,
+                font=dict(size=16, color="#666666"),
+                align="center"
+            )
+            fig.update_layout(
+                xaxis=dict(visible=False),
+                yaxis=dict(visible=False),
+                height=400
+            )
+            return fig
+    except Exception as e:
+        # Error state
+        fig = go.Figure()
+        fig.add_annotation(
+            text=f"Error loading accuracy chart<br><br>{str(e)}",
+            xref="paper", yref="paper",
+            x=0.5, y=0.5,
+            showarrow=False,
+            font=dict(size=14, color="#cc0000"),
+            align="center"
+        )
+        fig.update_layout(
+            xaxis=dict(visible=False),
+            yaxis=dict(visible=False),
+            height=400
+        )
+        return fig
     
     epochs = [row[0] for row in data]
     train_acc = [row[1] * 100 for row in data]
@@ -207,32 +255,65 @@ def create_accuracy_chart():
 
 def create_performance_dashboard():
     """Create scatter plot showing accuracy vs training time for all models."""
-    conn = sqlite3.connect('artifacts/training_history.db')
-    cursor = conn.cursor()
-    
-    # Get all runs with performance data (no JOIN - query models separately)
-    cursor.execute('''
-        SELECT model_id, val_accuracy, duration
-        FROM training_runs
-        WHERE duration IS NOT NULL AND val_accuracy IS NOT NULL
-        ORDER BY model_id
-    ''')
-    
-    runs = cursor.fetchall()
-    
-    # Build data list with architecture names
-    data = []
-    for model_id, val_acc, duration in runs:
-        # Look up architecture for this model_id
-        cursor.execute('SELECT architecture FROM models WHERE model_id = ?', (model_id,))
-        arch_result = cursor.fetchone()
-        if arch_result:
-            data.append((arch_result[0], val_acc, duration))
-    
-    conn.close()
-    
-    if not data:
-        return None
+    try:
+        conn = sqlite3.connect('artifacts/training_history.db')
+        cursor = conn.cursor()
+        
+        # Get all runs with performance data (no JOIN - query models separately)
+        cursor.execute('''
+            SELECT model_id, val_accuracy, duration
+            FROM training_runs
+            WHERE duration IS NOT NULL AND val_accuracy IS NOT NULL
+            ORDER BY model_id
+        ''')
+        
+        runs = cursor.fetchall()
+        
+        # Build data list with architecture names
+        data = []
+        for model_id, val_acc, duration in runs:
+            # Look up architecture for this model_id
+            cursor.execute('SELECT architecture FROM models WHERE model_id = ?', (model_id,))
+            arch_result = cursor.fetchone()
+            if arch_result:
+                data.append((arch_result[0], val_acc, duration))
+        
+        conn.close()
+        
+        if not data:
+            # Show empty state message
+            fig = go.Figure()
+            fig.add_annotation(
+                text="No performance data available<br><br>Train models to compare their speed and accuracy!",
+                xref="paper", yref="paper",
+                x=0.5, y=0.5,
+                showarrow=False,
+                font=dict(size=16, color="#666666"),
+                align="center"
+            )
+            fig.update_layout(
+                xaxis=dict(visible=False),
+                yaxis=dict(visible=False),
+                height=400
+            )
+            return fig
+    except Exception as e:
+        # Error state
+        fig = go.Figure()
+        fig.add_annotation(
+            text=f"Error loading performance dashboard<br><br>{str(e)}",
+            xref="paper", yref="paper",
+            x=0.5, y=0.5,
+            showarrow=False,
+            font=dict(size=14, color="#cc0000"),
+            align="center"
+        )
+        fig.update_layout(
+            xaxis=dict(visible=False),
+            yaxis=dict(visible=False),
+            height=400
+        )
+        return fig
     
     # Prepare data for plotting
     architectures = []
@@ -297,23 +378,15 @@ def get_best_models():
     conn = sqlite3.connect('artifacts/training_history.db')
     cursor = conn.cursor()
     
-    # Get all architectures
-    cursor.execute('SELECT DISTINCT architecture FROM models')
-    architectures = [row[0] for row in cursor.fetchall()]
+    # Get all architectures (with model_id for lookup)
+    cursor.execute('SELECT model_id, architecture FROM models')
+    models = cursor.fetchall()
     
     best_models = {}
     
-    for arch in architectures:
-        # Get model_id for this architecture first
-        cursor.execute('SELECT model_id FROM models WHERE architecture = ?', (arch,))
-        model_result = cursor.fetchone()
-        
-        if not model_result:
-            continue
-            
-        model_id = model_result[0]
-        
-        # Find best run for this model_id (simple query without JOIN)
+    for model_id, arch in models:
+        # Find best run for this architecture (highest validation accuracy)
+        # Simple query without JOIN
         cursor.execute('''
             SELECT model_filename, val_accuracy 
             FROM training_runs
@@ -479,7 +552,14 @@ def predict_with_validation(input_method, uploaded_image, drawn_image):
         best_models = get_best_models()
         if not best_models:
             blank_image = Image.new('L', (28, 28), 255)
-            return blank_image, blank_image, "❌ No trained models found. Please train some models in the Train tab first."
+            error_df = pd.DataFrame([{
+                'Rank': '-',
+                'Architecture': 'None',
+                'Prediction': '-',
+                'Confidence': '-',
+                'Top-5 Probabilities': 'No models trained yet'
+            }])
+            return blank_image, blank_image, error_df, "❌ No trained models found. Please train some models in the Train tab first."
         
         # Process images
         try:
@@ -541,30 +621,59 @@ def predict_with_validation(input_method, uploaded_image, drawn_image):
                     f"➡ Top model: {top_model['arch']} predicted {top_model['digit']} ({top_model['confidence']:.1f}% confidence)"
                 )
 
-        # Add each model line (winner gets a star)
+        # Build results table
+        table_data = []
         for idx, m in enumerate(sorted_models):
             if 'error' in m:
-                results_lines.append(f"{m['arch']}: error ({m['error']})")
+                table_data.append({
+                    'Rank': f"#{idx+1}",
+                    'Architecture': m['arch'],
+                    'Prediction': 'Error',
+                    'Confidence': '-',
+                    'Top-5 Probabilities': m['error']
+                })
                 continue
+            
+            # Format top-5 probabilities
             top_str = ", ".join([f"{d}:{p*100:.1f}%" for d, p in m['top_probs']])
-            prefix = "⭐ " if idx == 0 else "• "
-            results_lines.append(
-                f"{prefix}{m['arch']}: {m['digit']} ({m['confidence']:.1f}%) | top digits → {top_str}"
-            )
-
-        # Consensus / disagreement note
+            
+            # Add star to winner
+            rank = f"⭐ #{idx+1}" if idx == 0 else f"#{idx+1}"
+            
+            table_data.append({
+                'Rank': rank,
+                'Architecture': m['arch'],
+                'Prediction': str(m['digit']),
+                'Confidence': f"{m['confidence']:.1f}%",
+                'Top-5 Probabilities': top_str
+            })
+        
+        results_df = pd.DataFrame(table_data)
+        
+        # Consensus message
         clean_preds = [m['digit'] for m in sorted_models if 'error' not in m and m['digit'] is not None]
-        if clean_preds:
-            if len(set(clean_preds)) == 1 and len(clean_preds) > 1:
-                results_lines.append("✅ All models agree")
-            elif len(set(clean_preds)) > 1:
-                results_lines.append("⚠️ Models disagree")
+        if len(clean_preds) >= 2:
+            # Only show consensus if 2+ models available
+            if len(set(clean_preds)) == 1:
+                consensus_msg = "✅ All models agree"
+            else:
+                consensus_msg = "⚠️ Models disagree"
+        else:
+            # Don't show consensus message for single model
+            consensus_msg = ""
 
-        return original, img_preprocessed, "\n".join(results_lines)
+        return original, img_preprocessed, results_df, consensus_msg
     
     except Exception as e:
         blank_image = Image.new('L', (28, 28), 255)
-        return blank_image, blank_image, f"❌ Unexpected error during prediction: {str(e)}"
+        error_df = pd.DataFrame([{
+            'Rank': '-',
+            'Architecture': 'Error',
+            'Prediction': '-',
+            'Confidence': '-',
+            'Top-5 Probabilities': str(e)
+        }])
+        return blank_image, blank_image, error_df, f"❌ Unexpected error: {str(e)}"
 
 
 def predict_with_preview(image):
@@ -662,7 +771,7 @@ with gr.Blocks(theme=custom_theme, title="MNIST Digit Classifier") as demo:
                 training_output = gr.Textbox(
                     label="Training Status",
                     lines=10,
-                    placeholder="Click 'Start Training' to begin..."
+                    value="👈 Select architecture and parameters, then click 'Start Training'\n\nAvailable architectures:\n• MLP: Simple fully-connected network (~30s)\n• Small CNN: Convolutional network (~60s)\n• Deeper CNN: More complex CNN (~90s)\n\nTraining progress will appear here..."
                 )
         
         train_button.click(
@@ -682,22 +791,42 @@ with gr.Blocks(theme=custom_theme, title="MNIST Digit Classifier") as demo:
                 
                 with gr.Row():
                     with gr.Column(scale=1):
-                        image_input = gr.Image(label="Upload Digit Image")
+                        image_input = gr.Image(label="Upload Digit Image", height=280)
                         upload_predict_button = gr.Button("Predict with All Models", variant="primary")
+                        
+                        with gr.Row():
+                            upload_original_display = gr.Image(
+                                label="Original Image", 
+                                interactive=False,
+                                height=250,
+                                width=250
+                            )
+                            upload_preprocessed_display = gr.Image(
+                                label="Model Input (28×28)", 
+                                interactive=False,
+                                height=250,
+                                width=250
+                            )
                     
-                    with gr.Column(scale=1):
-                        gr.Markdown("**Original Image**")
-                        upload_original_display = gr.Image(label="Your Input", interactive=False)
-                        
-                        gr.Markdown("**Preprocessed Image**")
-                        gr.Markdown("*What the model sees (28×28 greyscale)*")
-                        upload_preprocessed_display = gr.Image(label="Model Input", interactive=False)
-                        
-                        gr.Markdown("**Prediction Results**")
-                        upload_prediction_output = gr.Textbox(
-                            label="Model Predictions",
-                            lines=8
+                    with gr.Column(scale=2):
+                        gr.Markdown("**Model Predictions**")
+                        # Start with empty state message
+                        empty_state_df = pd.DataFrame([{
+                            'Rank': '→',
+                            'Architecture': 'Waiting for input...',
+                            'Prediction': '-',
+                            'Confidence': '-',
+                            'Top-5 Probabilities': 'Upload an image above and click Predict'
+                        }])
+                        upload_prediction_output = gr.Dataframe(
+                            label="Prediction Results",
+                            headers=['Rank', 'Architecture', 'Prediction', 'Confidence', 'Top-5 Probabilities'],
+                            datatype=['str', 'str', 'str', 'str', 'str'],
+                            row_count=3,
+                            col_count=(5, "fixed"),
+                            value=empty_state_df
                         )
+                        upload_consensus_output = gr.Markdown("👆 Upload a digit image above to get started")
             
             with gr.TabItem("Draw Digit"):
                 gr.Markdown("**Draw a digit on the canvas**")
@@ -705,38 +834,58 @@ with gr.Blocks(theme=custom_theme, title="MNIST Digit Classifier") as demo:
                 with gr.Row():
                     with gr.Column(scale=1):
                         sketch_input = gr.Sketchpad(
-                            label="Draw Digit (28×28 canvas)",
+                            label="Draw Digit",
                             height=280,
                             width=280
                         )
                         draw_hint = gr.Markdown("*Draw a digit from 0-9 on the canvas above*")
                         draw_predict_button = gr.Button("Predict with All Models", variant="primary")
+                        
+                        with gr.Row():
+                            draw_original_display = gr.Image(
+                                label="Your Drawing", 
+                                interactive=False,
+                                height=250,
+                                width=250
+                            )
+                            draw_preprocessed_display = gr.Image(
+                                label="Model Input (28×28)", 
+                                interactive=False,
+                                height=250,
+                                width=250
+                            )
                     
-                    with gr.Column(scale=1):
-                        gr.Markdown("**Original Image**")
-                        draw_original_display = gr.Image(label="Your Input", interactive=False)
-                        
-                        gr.Markdown("**Preprocessed Image**")
-                        gr.Markdown("*What the model sees (28×28 greyscale)*")
-                        draw_preprocessed_display = gr.Image(label="Model Input", interactive=False)
-                        
-                        gr.Markdown("**Prediction Results**")
-                        draw_prediction_output = gr.Textbox(
-                            label="Model Predictions",
-                            lines=8
+                    with gr.Column(scale=2):
+                        gr.Markdown("**Model Predictions**")
+                        # Start with empty state message
+                        empty_state_df_draw = pd.DataFrame([{
+                            'Rank': '→',
+                            'Architecture': 'Waiting for input...',
+                            'Prediction': '-',
+                            'Confidence': '-',
+                            'Top-5 Probabilities': 'Draw a digit on the canvas and click Predict'
+                        }])
+                        draw_prediction_output = gr.Dataframe(
+                            label="Prediction Results",
+                            headers=['Rank', 'Architecture', 'Prediction', 'Confidence', 'Top-5 Probabilities'],
+                            datatype=['str', 'str', 'str', 'str', 'str'],
+                            row_count=3,
+                            col_count=(5, "fixed"),
+                            value=empty_state_df_draw
                         )
+                        draw_consensus_output = gr.Markdown("✏️ Draw a digit on the canvas above to get started")
         
         upload_predict_button.click(
             fn=lambda img: predict_with_validation("Upload Image", img, None),
             inputs=[image_input],
-            outputs=[upload_original_display, upload_preprocessed_display, upload_prediction_output],
+            outputs=[upload_original_display, upload_preprocessed_display, upload_prediction_output, upload_consensus_output],
             api_name=False
         )
         
         draw_predict_button.click(
             fn=lambda img: predict_with_validation("Draw Digit", None, img),
             inputs=[sketch_input],
-            outputs=[draw_original_display, draw_preprocessed_display, draw_prediction_output],
+            outputs=[draw_original_display, draw_preprocessed_display, draw_prediction_output, draw_consensus_output],
             api_name=False
         )
     

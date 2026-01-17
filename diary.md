@@ -1,41 +1,25 @@
-# Phase 20 Development Diary
+# Phase 21 Development Diary
 
-## Drawing Input
+## What Started As
 
-This was the feature I'd been putting off since early on. Gradio has a built-in `gr.Sketchpad` component which made it straightforward - it outputs the same numpy array format as image uploads so it works with the existing preprocessing code without any changes.
+Was supposed to be quick. Just add empty state messages to the History tab charts so new users don't see blank white rectangles. Instead of returning None when there's no data, return a Plotly figure with a centred annotation saying "No training history yet - train a model to see charts."
 
-Originally tried using radio buttons to switch between upload and draw modes with visibility toggles, but that caused weird type mismatches in the callbacks. Switched to separate tabs instead (Upload tab and Draw tab) which is cleaner anyway.
+Used `xref="paper"` coordinates so the text sits at (0.5, 0.5) regardless of axis ranges. Grey text for empty states, red for actual errors. Hid the axes since they'd just show 0-1 with no data. With `showarrow=False` and the axes hidden, it's just the message on a blank background, which is what I wanted.
 
-Both the Upload and Draw tabs need to call `predict_with_validation()` but with different arguments. Didn't want to write two separate wrapper functions just for that so I used lambdas - `fn=lambda img: predict_with_validation("Upload Image", img, None)`. A lambda is basically a mini function you write right there without giving it a name. The `lambda img:` bit means it takes `img` as input and the rest is what it does. Honestly found the syntax confusing the first time I saw it but once I realised it's just a one-line `def` it made sense.
+## What It Turned Into
 
-One problem: drawn digits come out as dark-on-light but MNIST expects light-on-dark. Had to add an inversion step. Also needed to detect empty drawings - ended up checking average pixel brightness, if it's above 250 the canvas is basically blank.
+Testing the empty states turned into a whole thing. Phase 20's predict function had a return value bug. Callbacks expect 4 outputs (original image, preprocessed image, dataframe, consensus text) but the "no models found" bit was only returning 3. Gradio threw a ValueError every time. Fixed it by going through every if/else and making sure they all return 4 things, using an empty DataFrame when there's an error. Had to go through every if/else in the function to check they all returned 4 things.
 
-## Validation and Error Handling
+While I was at it, noticed the consensus logic was firing even when only one model was available, which doesn't make sense. It doesn't make sense to say models agree when there's only one. Added a `len(clean_preds) >= 2` check. Without this, training a single MLP and then predicting would show "All models agree!" which is technically true but meaningless.
 
-Went through the app and added proper validation everywhere I could think of:
-- Training params: epochs 1-50, batch size 16-256
-- Empty image checks for both upload and draw
-- "No trained models found" message instead of crash when database is empty
-- try/except around all prediction logic
-
-The error messages are specific now rather than generic Python tracebacks. Things like "Please draw a digit on the canvas first" instead of just crashing.
-
-## Confidence Summary
-
-Added a compact confidence breakdown to each model's prediction - shows the top 5 digit probabilities so you can tell whether the model is sure (one value dominating) or uncertain (several close values). Looks like:
-
-`Deeper CNN: 7 (97.9%) | top → 7:97.9%, 2:0.7%, 1:0.5%, 9:0.4%, 3:0.2%`
-
-Also sorted the output by confidence so the most certain model appears first, with a star next to the winner. Considered a bar chart or heatmap for this but it felt like overkill - the text version is enough to see how sure the model is and it doesn't take up loads of space.
-
-## Problems
-
-The Deeper CNN database entry pointed at a model file that didn't exist (leftover from Phase 14's corruption issue). Had to patch the row. Also the initial output order was random because dictionaries don't guarantee order - fixed with sorting.
-
-For the sorting I used `sorted(model_rows, key=lambda m: m['confidence'], reverse=True)` - the `key=` bit tells Python what to sort by, which here is a lambda that grabs the confidence from each dict. `reverse=True` makes it highest-first. The probability breakdown line is a bit mad: `sorted(enumerate(probs), key=lambda x: x[1], reverse=True)[:5]`. `enumerate()` pairs each probability with its position (which digit it is), sort by probability, then `[:5]` takes the top 5. Lot going on in one line but couldn't work out a cleaner way to do it.
+Then I looked at the Train and Predict tabs and realised they had the same blank-screen problem on first launch. The Train tab now shows a little guide with the three architectures and rough training times so new users know what to expect. The Predict tabs show "Waiting for input..." in the results table with a message pointing to the upload/draw area. It's not fancy but it prevents that "what am I supposed to do?" moment.
 
 ## Testing
 
-Drew all 10 digits (0-9), tested empty canvas detection, tried switching between tabs, checked probability formatting. The drawing feature is actually fun to use - way more satisfying than hunting for digit images to upload.
+Wiped the database and tested fresh launch - every tab now has clear guidance instead of blank space. Trained a couple of models and verified the empty states disappear properly once there's real data. Checked the predict function with various error conditions to confirm the 4-tuple fix works. Also tested with just one trained model to make sure the consensus message doesn't show.
 
-Took about 4 hours. The drawing part was quick, but checking all the different inputs adds up.
+The predict bug was probably there since Phase 20 but I never hit the exact conditions to trigger it until now. I wasn't even looking for it, just stumbled into it while testing other stuff.
+
+## Reflection
+
+What I thought would take 30 minutes ended up being about 2.5 hours because of all the extra fixes. Annoying but thats kind of the point of a polish phase I suppose. I'd been ignoring this stuff while building features but it's really what stops the app looking half-done. The app feels way more finished now - no more blank screens when you first open it. Didn't realise how much all those small details would add up.

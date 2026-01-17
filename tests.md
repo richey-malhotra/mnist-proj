@@ -385,3 +385,22 @@ This was a big one — added error handling, input validation, and a canvas for 
 **Drawing canvas brush size is quite thick.** The default Gradio Sketchpad has a thick brush which makes it hard to draw fine details. Digits like 1 come out looking like a thick line and sometimes get confused with 7. I tried adjusting the brush width in Gradio's settings but it doesn't seem to expose that easily. Not fixed.
 
 **Drawing doesn't work well on mobile/tablet.** The touch input on a phone is laggy and imprecise. Since the app is designed for desktop use I'm not going to fix this but thought I should mention it.
+---
+
+## Phase 21 — UI Polish and Empty States
+
+### What I tested
+
+Made sure the app looks good when there's no data and all the small UI elements work.
+
+### Tests
+
+| # | What I tried | Type | Expected | Actual | Pass? |
+|---|---|---|---|---|---|
+| 1 | Open app with no models trained | Boundary | Sensible empty state messages | "No models trained yet" messages shown | Yes |
+| 2 | History tab with empty database | Boundary | Empty table or helpful message | Shows column headers with "No training runs yet" text | Yes |
+| 3 | Check all labels and headings | Normal | No typos, consistent styling | Found one typo ("Traning" → "Training"), fixed it | Yes |
+
+### Bugs found
+
+**Found a typo** — "Traning" instead of "Training" in one of the labels. Fixed it straight away. Easy to miss these things when you've been staring at the same code for months.
