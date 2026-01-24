@@ -404,3 +404,22 @@ Made sure the app looks good when there's no data and all the small UI elements 
 ### Bugs found
 
 **Found a typo** — "Traning" instead of "Training" in one of the labels. Fixed it straight away. Easy to miss these things when you've been staring at the same code for months.
+---
+
+## Phase 22 — Code Comments and Documentation
+
+### What I tested
+
+Went through all files and made sure everything is properly commented.
+
+### Tests
+
+| # | What I tried | Type | Expected | Actual | Pass? |
+|---|---|---|---|---|---|
+| 1 | Check every function has a docstring | Normal | All functions documented | 2 were missing docstrings, added them | Yes |
+| 2 | Check inline comments explain non-obvious code | Normal | Complex sections have comments | Added comments to the preprocessing logic and database queries | Yes |
+| 3 | Run the app after adding comments | Regression | Still works the same | Everything works as before | Yes |
+
+### Bugs found
+
+None — adding comments doesn't change functionality. But I did notice some comments I'd written earlier were wrong (described what the code USED to do before I changed it), so I updated those.

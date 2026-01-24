@@ -1,6 +1,11 @@
 """
-Model architectures for MNIST digit classification.
-Phase 11: Added CNN architectures
+Three model architectures for MNIST digit classification.
+
+1. MLP — simple fully-connected network (~97% accuracy, ~10s)
+2. Small CNN — one conv layer (~98.5%, ~45s)
+3. Deeper CNN — two conv layers + dropout (~99%+, ~90s)
+
+All compiled with Adam optimiser and sparse categorical crossentropy.
 """
 
 from tensorflow import keras
@@ -8,12 +13,20 @@ from tensorflow.keras import layers
 import numpy as np
 import os
 
+
+# ============================================================================
+# MODEL ARCHITECTURES
+# ============================================================================
+
 def create_mlp():
     """Create a simple MLP for digit classification."""
     model = keras.Sequential([
-        layers.Flatten(input_shape=(28, 28)),  # 28×28 → 784
-        layers.Dense(128, activation='relu'),   # Hidden layer
-        layers.Dense(10, activation='softmax')  # Output (10 digits)
+        # Flatten 28×28 into 1D vector
+        layers.Flatten(input_shape=(28, 28)),
+        # Hidden layer
+        layers.Dense(128, activation='relu'),
+        # Output — one neuron per digit
+        layers.Dense(10, activation='softmax')
     ])
     
     model.compile(

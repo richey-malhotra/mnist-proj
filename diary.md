@@ -1,25 +1,78 @@
-# Phase 21 Development Diary
+# Phase 22 Development Diary
 
-## What Started As
+Honestly expected this to be boring - "add comments and docstrings." It wasn't boring exactly, but it took way longer than I thought. I had to actually understand what everything does well enough to explain it, which was way harder than I expected.
 
-Was supposed to be quick. Just add empty state messages to the History tab charts so new users don't see blank white rectangles. Instead of returning None when there's no data, return a Plotly figure with a centred annotation saying "No training history yet - train a model to see charts."
+## What I Did
 
-Used `xref="paper"` coordinates so the text sits at (0.5, 0.5) regardless of axis ranges. Grey text for empty states, red for actual errors. Hid the axes since they'd just show 0-1 with no data. With `showarrow=False` and the axes hidden, it's just the message on a blank background, which is what I wanted.
+Went through all three Python files and added proper documentation.
 
-## What It Turned Into
+### app_ui.py
 
-Testing the empty states turned into a whole thing. Phase 20's predict function had a return value bug. Callbacks expect 4 outputs (original image, preprocessed image, dataframe, consensus text) but the "no models found" bit was only returning 3. Gradio threw a ValueError every time. Fixed it by going through every if/else and making sure they all return 4 things, using an empty DataFrame when there's an error. Had to go through every if/else in the function to check they all returned 4 things.
+This was the big one. 935 lines with barely any comments. First thing I added was section markers - those `# ===` divider blocks splitting the file into DATA LOADING, DATABASE FUNCTIONS, TRAINING, PREDICTION, CHARTS, UI LAYOUT. Before this I had to Cmd+F for function names which was slow. Now I can just scroll to the section I need.
 
-While I was at it, noticed the consensus logic was firing even when only one model was available, which doesn't make sense. It doesn't make sense to say models agree when there's only one. Added a `len(clean_preds) >= 2` check. Without this, training a single MLP and then predicting would show "All models agree!" which is technically true but meaningless.
+Then went through every function and added proper docstrings. The most important one was probably `save_training_run()` because it changes the database in ways that aren't obvious from the function name:
 
-Then I looked at the Train and Predict tabs and realised they had the same blank-screen problem on first launch. The Train tab now shows a little guide with the three architectures and rough training times so new users know what to expect. The Predict tabs show "Waiting for input..." in the results table with a message pointing to the upload/draw area. It's not fancy but it prevents that "what am I supposed to do?" moment.
+```python
+def save_training_run(architecture, epochs, batch_size, val_accuracy, duration=None):
+    """
+    Save a completed training run to the database with a unique filename.
+
+    Creates a new model entry if this architecture hasn't been trained before,
+    then records the training run details.
+
+    Args:
+        architecture (str): Model type ("MLP", "Small CNN", or "Deeper CNN")
+        epochs (int): Number of training epochs completed
+        batch_size (int): Batch size used during training
+        val_accuracy (float): Final validation accuracy (0-1 range)
+        duration (float, optional): Training time in seconds
+
+    Returns:
+        str: Unique filename for saving the model (e.g., "model_mlp_run5.keras")
+
+    Database Changes:
+        - May insert new row in models table if architecture is new
+        - Inserts new row in training_runs table with run details
+    """
+```
+
+The "Database Changes" section was my own addition - I haven't seen it in the docstring formats I found online but it seemed important. If the function changes the database without it being obvious from the name, I think that should be written down.
+
+The `get_training_history()` docstring was tricky because I had to explain the JOINs decision. Ended up being honest about it - I'm using sequential queries because they're simpler for me to debug and understand. A JOIN would be more efficient technically but for such a tiny dataset it honestly doesn't matter.
+
+For `train_new_model()` I used "Yields" instead of "Returns" in the docstring because it's a generator function (Phase 10's work). Small thing but the difference matters because it's a generator.
+
+### models.py
+
+Added a module header comparing all three architectures side by side - rough accuracy, training time, when you'd pick each one. Each `create_` function now has the full architecture listed layer by layer with expected parameter counts. Mostly so I can remember my own reasoning later. If someone asks why I picked the Deeper CNN I can just check the docstring.
+
+### utils.py
+
+Short file so there wasn't much to do. Added a section header and tidied up the existing comments — shortened a few that were too wordy and combined the greyscale + resize comments since they're basically one step. Didn't add full numbered steps like I planned because the code's already pretty readable as-is.
+
+## Approach
+
+Used the docstring format I've seen most in tutorials and Stack Overflow. I tried to explain why I did things a certain way rather than just restating what the code does. Like writing `# add 1` next to `x = x + 1` is pointless, but `# skip header row` actually helps. Tried to apply that everywhere.
+
+For inline comments I things that aren't clear from the code - database queries, numpy operations, Gradio-specific quirks. Didn't comment basic Python because that would just be stating the obvious.
+
+## Results
+
+- app_ui.py: ~935 → ~955 lines (+~20)
+- models.py: 116 → 129 lines (+13)
+- utils.py: 34 lines (minor comment tidying, same line count)
+- Total: +33 lines of documentation
+
+Less than I expected but the important functions all have proper explanations now. Didn't pad it though - everything I wrote actually explains something useful.
 
 ## Testing
 
-Wiped the database and tested fresh launch - every tab now has clear guidance instead of blank space. Trained a couple of models and verified the empty states disappear properly once there's real data. Checked the predict function with various error conditions to confirm the 4-tuple fix works. Also tested with just one trained model to make sure the consensus message doesn't show.
-
-The predict bug was probably there since Phase 20 but I never hit the exact conditions to trigger it until now. I wasn't even looking for it, just stumbled into it while testing other stuff.
+Ran `python -c "import app_ui"` (and models, utils) to check no docstrings broke the syntax. Tested `help(models.create_mlp)` in the REPL to make sure the formatted output looks right. All clean.
 
 ## Reflection
 
-What I thought would take 30 minutes ended up being about 2.5 hours because of all the extra fixes. Annoying but thats kind of the point of a polish phase I suppose. I'd been ignoring this stuff while building features but it's really what stops the app looking half-done. The app feels way more finished now - no more blank screens when you first open it. Didn't realise how much all those small details would add up.
+The most useful things I added are probably the section markers in app_ui.py and the architecture comparison in models.py. Both save time when navigating the code. The docstrings should also help - I can quickly review what each function does and why I made certain choices without re-reading all the code.
+
+Comments felt tedious but made me actually go through my code properly. Found a couple of places where I'd done something for a reason I'd already half-forgotten - now it's written down. Honestly that's the main reason I'm glad I did it, because I know I'll forget why I did things a certain way.
+
+Took about 3 hours. Most of the time went to app_ui.py because of its size. Commenting code always takes longer than you think.

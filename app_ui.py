@@ -1,10 +1,10 @@
 """
 MNIST Digit Recognition Project
-Phase 20: Error Handling + Input Validation + Drawing Input
+Phase 22: Documentation Pass
 """
 
 import warnings
-# Suppress urllib3 OpenSSL warning (macOS system library compatibility issue)
+# Suppress urllib3 OpenSSL warning (macOS LibreSSL compatibility issue - not fixable)
 warnings.filterwarnings('ignore', message='urllib3 v2 only supports OpenSSL')
 
 import gradio as gr
@@ -20,15 +20,24 @@ from utils import preprocess_image
 import plotly.graph_objects as go
 import time
 
-# Load MNIST data once at startup
+# ============================================================================
+# DATA LOADING
+# ============================================================================
+# Load MNIST once at startup so we don't reload every time
 print("Loading MNIST dataset...")
 (x_train, y_train), (x_test, y_test) = mnist.load_data()
+
+# Normalise pixels to 0-1
 x_train = x_train.astype('float32') / 255.0
 x_test = x_test.astype('float32') / 255.0
+
 print(f"Dataset loaded: {x_train.shape[0]} training images, {x_test.shape[0]} test images")
 
 
-# Create custom theme for professional look
+# ============================================================================
+# UI THEME CONFIGURATION
+# ============================================================================
+# Custom theme — blue, clean look
 custom_theme = gr.themes.Soft(
     primary_hue="blue",
     secondary_hue="slate",
@@ -42,6 +51,10 @@ custom_theme = gr.themes.Soft(
 )
 
 
+# ============================================================================
+# DATABASE FUNCTIONS
+# ============================================================================
+
 def save_training_run(architecture, epochs, batch_size, val_accuracy, duration=None):
     """Save training run to database with unique filename."""
     conn = sqlite3.connect('artifacts/training_history.db')
@@ -52,22 +65,22 @@ def save_training_run(architecture, epochs, batch_size, val_accuracy, duration=N
     result = cursor.fetchone()
     
     if result:
-        model_id = result[0]
+        model_id = result[0]  # Architecture already exists
     else:
-        # Insert new architecture
+        # First time training this architecture - create new model entry
         cursor.execute('INSERT INTO models (architecture) VALUES (?)', (architecture,))
-        model_id = cursor.lastrowid
+        model_id = cursor.lastrowid  # Get the auto-generated model_id
     
-    # Get next run_id to create unique filename
+    # Get next run_id for unique filename
     cursor.execute('SELECT MAX(run_id) FROM training_runs')
     max_run = cursor.fetchone()[0]
     next_run_id = 1 if max_run is None else max_run + 1
     
-    # Create unique filename
+    # Create unique filename e.g. "model_small_cnn_run3.keras"
     arch_clean = architecture.lower().replace(' ', '_')
     model_filename = f'model_{arch_clean}_run{next_run_id}.keras'
     
-    # Insert training run
+    # Insert training run record
     cursor.execute('''
         INSERT INTO training_runs 
         (model_id, epochs, batch_size, val_accuracy, model_filename, duration)
@@ -85,7 +98,7 @@ def get_training_history():
     conn = sqlite3.connect('artifacts/training_history.db')
     cursor = conn.cursor()
     
-    # Get all runs ordered by most recent first
+    # Get all runs, newest first
     cursor.execute('''
         SELECT run_id, model_id, epochs, batch_size, val_accuracy, model_filename, created_at
         FROM training_runs
@@ -94,31 +107,34 @@ def get_training_history():
     
     runs = cursor.fetchall()
     
+    # Handle empty case (no training runs yet)
     if not runs:
         conn.close()
+        # Return empty DataFrame with the right column headers for display
         return pd.DataFrame(columns=['Run ID', 'Architecture', 'Epochs', 'Batch Size', 'Accuracy (%)', 'Filename', 'Timestamp'])
     
     # Build list with architecture names (separate query for each - no JOIN)
     data = []
     for run_id, model_id, epochs, batch_size, val_accuracy, model_filename, created_at in runs:
-        # Look up architecture for this model_id
+        # Look up architecture name for this model_id
         cursor.execute('SELECT architecture FROM models WHERE model_id = ?', (model_id,))
         result = cursor.fetchone()
         arch = result[0] if result else 'Unknown'
         
+        # Build dictionary for this row (easier than list of lists)
         data.append({
             'Run ID': run_id,
             'Architecture': arch,
             'Epochs': epochs,
             'Batch Size': batch_size,
-            'Accuracy (%)': round(val_accuracy * 100, 2),
+            'Accuracy (%)': round(val_accuracy * 100, 2),  # Convert 0.9812 → 98.12%
             'Filename': model_filename,
             'Timestamp': created_at
         })
     
     conn.close()
     
-    # Convert to DataFrame
+    # Convert to DataFrame for Gradio display
     df = pd.DataFrame(data)
     return df
 
@@ -408,10 +424,14 @@ def get_best_models():
     return best_models
 
 
+# ============================================================================
+# TRAINING FUNCTIONS
+# ============================================================================
+
 def train_new_model(architecture, epochs, batch_size):
     """Train a model (MLP or CNN) and show progress each epoch."""
     try:
-        # Convert to integers
+        # Convert to integers (Gradio passes as strings from Number components)
         epochs = int(epochs)
         batch_size = int(batch_size)
         
