@@ -21,7 +21,7 @@ He then said "could you make this work on a phone? Like an app where you point t
 
 **Yiannis:** "In Java we'd build a GUI for something like this. Does Python have anything like that? A window where you can upload an image and click a button?"
 
-He said the terminal output is fine for testing but if this is supposed to be an actual application someone uses, it needs a proper interface. Fair point.
+He said the terminal output is fine for testing but if this is supposed to be an actual application someone uses, it needs a proper interface. Fair enough.
 
 He also asked when the project is due and whether the code or the write-up matters more for the grade. I said it's all weighted together - analysis, design, implementation, testing, evaluation. He said "that sounds like a lot of writing" which... yeah.
 
@@ -213,3 +213,76 @@ The clear button visibility and the preview size are both valid points I'm not g
 
 - Finish the error handling (already in progress)
 - Make sure the empty states have proper messages so the app never just shows a blank screen
+---
+
+## Final feedback — Phase 23 (end of January)
+
+### When and how
+
+Showed the finished version to everyone. Thanos was visiting again, called Petros, and FaceTimed Lefteris and Yiannis. Basically wanted final opinions from all four before I submit.
+
+### What Thanos said
+
+"The code structure is much better now compared to when I first saw it. You've separated the models, the utilities, the database setup. The error handling is solid — I tried a few edge cases and it handled them all. For a school project this is genuinely good work."
+
+He said he could tell I'd learned a lot since November — "the way you talk about the code is different now, you actually understand what you built rather than just following a tutorial." That meant alot coming from him.
+
+He said the only thing he'd suggest for the future is writing unit tests (like with pytest) but acknowledged "that's probably beyond scope for what you're doing."
+
+He also asked about deployment — "have you thought about hosting this somewhere? Like on a server so it's always available?" I said no, it just runs locally, and for a school project that's fine. He agreed but said it would be easy to deploy on something like Railway or Render if I ever wanted to.
+
+### What Petros said
+
+"You could add a confusion matrix that shows which digits get mixed up with each other — the model probably confuses 4s and 9s, or 3s and 8s. That would be interesting analysis."
+
+"Batch prediction — being able to test on a whole batch of images at once instead of one at a time — would also be a nice feature."
+
+"Honestly what you've got is solid though. You can see how it's progressed from the early stuff, the charts add a lot, and the code is readable. I'd be happy with it if I were you."
+
+### What Lefteris said
+
+"It's way better than when I first saw it. Back then it was just numbers in a terminal. Now it's a proper app with a nice theme and everything. I actually understand how to use it now without you explaining things."
+
+He didn't ask about the phone app this time so I think he's finally given up on that.
+
+He asked "so do I have to build something this complicated for my project?" and I told him no — he's got 18 months and the Greek curriculum might be different. But he seemed motivated which is good.
+
+### What Yiannis said
+
+"OK so now I want to build something like this but in Java." (laughing)
+
+More seriously: "The UI looks proper, the custom theme looks really good, and I like that you can compare different models. The scatter plot showing the trade-off is probably the coolest chart."
+
+"I still think the drawing canvas clear button should be more obvious though." (He's not letting that go.)
+
+### My thoughts
+
+Good to get positive feedback at the end. The confusion matrix and batch prediction ideas from Petros are things I'd add if I had more time, but the project is due and what I have is complete.
+
+Looking back at all the feedback sessions, the suggestions that led to actual changes were:
+- Lefteris wanting to test his own handwriting → led to the image upload feature
+- Yiannis suggesting a proper GUI → led to the Gradio interface
+- Petros pointing out the page freezing → led to live training progress
+- Petros guiding me toward CNNs → led to three model architectures
+- Thanos pushing for data persistence → led to the SQLite database
+- Thanos saying to split the code → led to models.py and utils.py
+- Yiannis asking about training time → led to the dashboard
+- Petros suggesting a scatter plot → led to the performance dashboard
+- Lefteris asking for a drawing feature → led to the drawing canvas
+
+Things people suggested that I DIDN'T implement:
+- Lefteris's phone app idea (way out of scope)
+- Lefteris's online learning idea (too complicated, data quality issues)
+- Yiannis's logging suggestion (overkill for one user)
+- Thanos's file-based error logging (same reason)
+- Thanos's unit testing with pytest (beyond scope, he agreed)
+- Thanos's deployment suggestion (not needed for school project)
+- Petros's data augmentation idea (MNIST is big enough)
+- Yiannis's keyboard shortcuts (Gradio limitation)
+- Petros's cross-validation (too complex, too late)
+- Yiannis's more prominent clear button (cosmetic, out of time)
+- Yiannis's bigger image preview (cosmetic, out of time)
+- Petros's confusion matrix (would need seperate analysis code)
+- Petros's batch prediction (significant UI redesign needed)
+
+The project is actually better because of their input, but not every suggestion needs to be implemented. Some were out of scope, some were too complex for the time remaining, and some were just nice-to-haves. That's a realistic part of development.

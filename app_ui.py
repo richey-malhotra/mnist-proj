@@ -1,6 +1,6 @@
 """
 MNIST Digit Recognition Project
-Phase 22: Documentation Pass
+Phase 23: Final Polish
 """
 
 import warnings
@@ -27,7 +27,7 @@ import time
 print("Loading MNIST dataset...")
 (x_train, y_train), (x_test, y_test) = mnist.load_data()
 
-# Normalise pixels to 0-1
+# Normalise pixel values to 0-1
 x_train = x_train.astype('float32') / 255.0
 x_test = x_test.astype('float32') / 255.0
 
@@ -37,17 +37,19 @@ print(f"Dataset loaded: {x_train.shape[0]} training images, {x_test.shape[0]} te
 # ============================================================================
 # UI THEME CONFIGURATION
 # ============================================================================
-# Custom theme — blue, clean look
+# Custom theme — blue primary colour, clean look
 custom_theme = gr.themes.Soft(
-    primary_hue="blue",
-    secondary_hue="slate",
-    neutral_hue="slate",
-    font=("Inter", "sans-serif")
+    primary_hue="blue",        # Main interface colour
+    secondary_hue="slate",     # Secondary elements
+    neutral_hue="slate",       # Background and neutral elements
+    font=("Inter", "sans-serif")  # Modern, readable font
 ).set(
-    button_primary_background_fill="#2E86AB",
-    button_primary_background_fill_hover="#236B8E",
-    block_title_text_weight="600",
-    block_label_text_weight="500"
+    # Custom button colours
+    button_primary_background_fill="#2E86AB",         # Blue background
+    button_primary_background_fill_hover="#236B8E",   # Darker blue on hover
+    # Text weights for headings vs normal text
+    block_title_text_weight="600",   # Semi-bold for section titles
+    block_label_text_weight="500"    # Medium weight for labels
 )
 
 
@@ -76,7 +78,7 @@ def save_training_run(architecture, epochs, batch_size, val_accuracy, duration=N
     max_run = cursor.fetchone()[0]
     next_run_id = 1 if max_run is None else max_run + 1
     
-    # Create unique filename e.g. "model_small_cnn_run3.keras"
+    # Create unique filename
     arch_clean = architecture.lower().replace(' ', '_')
     model_filename = f'model_{arch_clean}_run{next_run_id}.keras'
     
@@ -431,7 +433,7 @@ def get_best_models():
 def train_new_model(architecture, epochs, batch_size):
     """Train a model (MLP or CNN) and show progress each epoch."""
     try:
-        # Convert to integers (Gradio passes as strings from Number components)
+        # Gradio sends these as strings
         epochs = int(epochs)
         batch_size = int(batch_size)
         

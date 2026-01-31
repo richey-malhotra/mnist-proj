@@ -21,12 +21,9 @@ import os
 def create_mlp():
     """Create a simple MLP for digit classification."""
     model = keras.Sequential([
-        # Flatten 28×28 into 1D vector
-        layers.Flatten(input_shape=(28, 28)),
-        # Hidden layer
-        layers.Dense(128, activation='relu'),
-        # Output — one neuron per digit
-        layers.Dense(10, activation='softmax')
+        layers.Flatten(input_shape=(28, 28)),  
+        layers.Dense(128, activation='relu'),   
+        layers.Dense(10, activation='softmax')  
     ])
     
     model.compile(
@@ -40,14 +37,9 @@ def create_mlp():
 def create_small_cnn():
     """Create a small CNN — one conv layer + pooling + dense."""
     model = keras.Sequential([
-        # Reshape for CNN (needs channel dimension)
         layers.Reshape((28, 28, 1), input_shape=(28, 28)),
-        
-        # Convolutional layer
         layers.Conv2D(32, kernel_size=(3, 3), activation='relu'),
         layers.MaxPooling2D(pool_size=(2, 2)),
-        
-        # Flatten and dense layers
         layers.Flatten(),
         layers.Dense(64, activation='relu'),
         layers.Dense(10, activation='softmax')
@@ -64,16 +56,11 @@ def create_small_cnn():
 def create_deeper_cnn():
     """Bigger CNN with two conv layers and dropout."""
     model = keras.Sequential([
-        # Reshape for CNN
         layers.Reshape((28, 28, 1), input_shape=(28, 28)),
-        
-        # Two convolutional layers
         layers.Conv2D(32, kernel_size=(3, 3), activation='relu'),
         layers.Conv2D(64, kernel_size=(3, 3), activation='relu'),
         layers.MaxPooling2D(pool_size=(2, 2)),
         layers.Dropout(0.25),
-        
-        # Dense layers with dropout
         layers.Flatten(),
         layers.Dense(128, activation='relu'),
         layers.Dropout(0.5),

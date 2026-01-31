@@ -1,78 +1,46 @@
-# Phase 22 Development Diary
+# Phase 23 Development Diary - Final Polish
 
-Honestly expected this to be boring - "add comments and docstrings." It wasn't boring exactly, but it took way longer than I thought. I had to actually understand what everything does well enough to explain it, which was way harder than I expected.
+## The README
 
-## What I Did
+Last phase. Mainly about writing a proper project-wide README that covers everything: installation, features, how to use each tab, technical details, database schema, known limitations. Wasn't sure who the audience was at first - someone cloning it? future me? Ended up writing it for both, so Quick Start at the top for actually running it and Technical Details lower down for anyone who wants to understand the code.
 
-Went through all three Python files and added proper documentation.
+The hardest section to write was "Key Design Decisions" because I had to justify things I'd done instinctively. Like why I used sequential queries instead of JOINs - at the time I just did it because it was simpler to debug, but writing it up properly I had to actually work out why I'd chosen to do it that way. Same with the generator function for training and the unique filename scheme. Trying to explain why I made those choices properly instead of just saying "it was easier" took ages.
 
-### app_ui.py
+Also wrote a Known Limitations section. Feels weird deliberately listing things your project can't do, but I'd rather say it myself than have someone else point it out. Single-user only, local only, no model versioning, limited input validation for weird inputs.
 
-This was the big one. 935 lines with barely any comments. First thing I added was section markers - those `# ===` divider blocks splitting the file into DATA LOADING, DATABASE FUNCTIONS, TRAINING, PREDICTION, CHARTS, UI LAYOUT. Before this I had to Cmd+F for function names which was slow. Now I can just scroll to the section I need.
+## Final Testing
 
-Then went through every function and added proper docstrings. The most important one was probably `save_training_run()` because it changes the database in ways that aren't obvious from the function name:
+Went through the whole app one more time with a fresh database:
 
-```python
-def save_training_run(architecture, epochs, batch_size, val_accuracy, duration=None):
-    """
-    Save a completed training run to the database with a unique filename.
+1. `python init_db.py`, tables created
+2. `python app_ui.py`, launches on 7860
+3. Trained one of each architecture (MLP ~28s/98.1%, Small CNN ~57s/99.1%, Deeper CNN ~91s/99.3%)
+4. Uploaded a 7, drew a 3 - predictions correct, all models agree
+5. History tab charts populate properly, hover works
+6. Empty states display correctly before first training
 
-    Creates a new model entry if this architecture hasn't been trained before,
-    then records the training run details.
+Everything works. No bugs that I can find. The accuracy numbers line up with what I've been seeing throughout the project, and the charts look correct.
 
-    Args:
-        architecture (str): Model type ("MLP", "Small CNN", or "Deeper CNN")
-        epochs (int): Number of training epochs completed
-        batch_size (int): Batch size used during training
-        val_accuracy (float): Final validation accuracy (0-1 range)
-        duration (float, optional): Training time in seconds
+Also tested a completely fresh install - deleted the venv, recreated it, and ran `pip install -r requirements.txt` from scratch. Everything installed and worked first time, which was a relief. Glad I'd already sorted the `huggingface_hub<1.0` pin back in Phase 6 or that would have broken again.
 
-    Returns:
-        str: Unique filename for saving the model (e.g., "model_mlp_run5.keras")
+## Including Artifacts in the Repo
 
-    Database Changes:
-        - May insert new row in models table if architecture is new
-        - Inserts new row in training_runs table with run details
-    """
-```
+Took the .keras and .db lines out of .gitignore for this final commit so the trained models and database are actually in the repo. Also removed the `.gitkeep` file from `artifacts/` since there are actual files in there now - it was only needed to keep the empty folder tracked. I'd been gitignoring them the whole project because committing binary files to git is bad practice, but it makes sense to include them so anyone cloning it can run the app straight away without training from scratch. So the final repo has three trained models (one per architecture) and the database with their training history.
 
-The "Database Changes" section was my own addition - I haven't seen it in the docstring formats I found online but it seemed important. If the function changes the database without it being obvious from the name, I think that should be written down.
+## Code Review
 
-The `get_training_history()` docstring was tricky because I had to explain the JOINs decision. Ended up being honest about it - I'm using sequential queries because they're simpler for me to debug and understand. A JOIN would be more efficient technically but for such a tiny dataset it honestly doesn't matter.
+Ran through the files checking for leftover TODOs, commented-out code, unused imports. Found a couple of minor things - an unused `datetime` import and the leftover `preprocess_image` in models.py - but left them since this phase is documentation only, not functional code changes. Ended up removing most of the inline comments I'd added to models.py in Phase 22 - things like `# Hidden layer` next to a Dense layer was just restating the obvious, which is ironic given that's exactly what I said not to do in Phase 22. Phases 21 and 22 already cleaned everything else up. `python -m py_compile` passes on all files. Because I had separate phases for cleanup and documentation, there wasn't much left to do at the end.
 
-For `train_new_model()` I used "Yields" instead of "Returns" in the docstring because it's a generator function (Phase 10's work). Small thing but the difference matters because it's a generator.
+## Looking Back
 
-### models.py
+23 phases feels like a lot but each one was small enough to actually finish in a session. Doing it in small phases worked well. I never felt overwhelmed because I was only ever doing one thing at a time. Phase 1 was literally just printing "hello world" and now there's a working ML web app with three neural network architectures, a database, interactive charts, and a drawing canvas.
 
-Added a module header comparing all three architectures side by side - rough accuracy, training time, when you'd pick each one. Each `create_` function now has the full architecture listed layer by layer with expected parameter counts. Mostly so I can remember my own reasoning later. If someone asks why I picked the Deeper CNN I can just check the docstring.
+Things I'd do differently: add empty states earlier (shouldn't have waited until Phase 21), test training times sooner so the UI could show estimates from the start, maybe add a confusion matrix to the History tab. Also I'd probably sort out the `api_name=False` thing at the Gradio level rather than patching every click handler, because there might be a global setting I missed.
 
-### utils.py
+Things I'm glad I did: keeping the SQL simple instead of trying to write clever JOINs, using Gradio instead of something more complicated like Flask, dedicating a whole phase to documentation (Phase 22 forced me to actually understand my own code properly), and doing it in small phases like this.
 
-Short file so there wasn't much to do. Added a section header and tidied up the existing comments — shortened a few that were too wordy and combined the greyscale + resize comments since they're basically one step. Didn't add full numbered steps like I planned because the code's already pretty readable as-is.
+The biggest thing I learned was to be really careful with the preprocessing, because if something's wrong there it doesn't crash - it just quietly gives you wrong answers. Phase 5's normalisation mismatch taught me that, and I was more careful about it for the rest of the project.
 
-## Approach
+Total across all 23 phases: probably 120-140 hours? That's everything combined though - the actual programming, reading documentation, watching YouTube tutorials, messing around trying to understand stuff. Hard to say exactly since I wasn't tracking it properly. The README and this diary took about 3.
 
-Used the docstring format I've seen most in tutorials and Stack Overflow. I tried to explain why I did things a certain way rather than just restating what the code does. Like writing `# add 1` next to `x = x + 1` is pointless, but `# skip header row` actually helps. Tried to apply that everywhere.
-
-For inline comments I things that aren't clear from the code - database queries, numpy operations, Gradio-specific quirks. Didn't comment basic Python because that would just be stating the obvious.
-
-## Results
-
-- app_ui.py: ~935 → ~955 lines (+~20)
-- models.py: 116 → 129 lines (+13)
-- utils.py: 34 lines (minor comment tidying, same line count)
-- Total: +33 lines of documentation
-
-Less than I expected but the important functions all have proper explanations now. Didn't pad it though - everything I wrote actually explains something useful.
-
-## Testing
-
-Ran `python -c "import app_ui"` (and models, utils) to check no docstrings broke the syntax. Tested `help(models.create_mlp)` in the REPL to make sure the formatted output looks right. All clean.
-
-## Reflection
-
-The most useful things I added are probably the section markers in app_ui.py and the architecture comparison in models.py. Both save time when navigating the code. The docstrings should also help - I can quickly review what each function does and why I made certain choices without re-reading all the code.
-
-Comments felt tedious but made me actually go through my code properly. Found a couple of places where I'd done something for a reason I'd already half-forgotten - now it's written down. Honestly that's the main reason I'm glad I did it, because I know I'll forget why I did things a certain way.
-
-Took about 3 hours. Most of the time went to app_ui.py because of its size. Commenting code always takes longer than you think.
+Project's done.

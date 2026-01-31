@@ -423,3 +423,55 @@ Went through all files and made sure everything is properly commented.
 ### Bugs found
 
 None — adding comments doesn't change functionality. But I did notice some comments I'd written earlier were wrong (described what the code USED to do before I changed it), so I updated those.
+---
+
+## Final Testing — Complete System Test
+
+### What I tested
+
+Full end-to-end testing of the complete application. Tested every feature, tab, and edge case I could think of.
+
+### Tests
+
+| # | What I tried | Type | Expected | Actual | Pass? |
+|---|---|---|---|---|---|
+| 1 | Full workflow: train MLP, predict, check history | Normal | All steps work | Complete workflow succeeded | Yes |
+| 2 | Full workflow: train all 3 architectures | Normal | All train and save | All trained, saved to DB, and appeared in history | Yes |
+| 3 | Compare predictions across all 3 models | Normal | All predict correctly | All 3 got the digit right, CNNs had higher confidence | Yes |
+| 4 | Draw digits 0-9 and predict with best model | Normal | At least 8/10 correct | 8 out of 10 correct with Deeper CNN | Yes |
+| 5 | Upload 5 different image formats (jpg, png, bmp, gif, webp) | Boundary | All should work | JPG, PNG worked. BMP worked. GIF worked. WebP caused an error | Partial |
+| 6 | Check all 3 charts display correctly | Normal | Bar chart, time chart, scatter plot | All rendered correctly | Yes |
+| 7 | Rapid clicking Predict button | Stress | Should queue or handle gracefully | Gradio queued requests, all processed in order | Yes |
+| 8 | Train then immediately predict before DB saves | Race condition | Should handle gracefully | Worked fine — DB save is synchronous | Yes |
+| 9 | Open app in two browser tabs simultaneously | Normal | Both should work | Both worked, shared the same backend | Yes |
+| 10 | Leave app running for 30 minutes, then use it | Normal | Should still respond | Worked fine, no timeout | Yes |
+
+### Screenshots
+
+![Training tab with model configuration](screenshots/final_train_tab.png)
+
+![Prediction result with confidence scores](screenshots/final_prediction_result.png)
+
+![Drawing canvas for digit input](screenshots/final_draw_canvas.png)
+
+![Training history with Plotly charts](screenshots/final_history_charts.png)
+
+### Bugs found / Known issues
+
+**WebP images not supported.** Uploading a .webp file causes an error. PIL supports WebP but something in the Gradio image component doesn't handle it. Haven't investigated further since WebP is uncommon for handwritten digit photos.
+
+**Off-centre drawings still predict poorly.** This was flagged in Phase 20 and is still an issue. The model expects centred digits but my drawing preprocessing doesn't auto-centre. Would need bounding box detection to fix properly.
+
+**Preview image still very small.** The 28x28 preprocessing preview is hard to see at native resolution. Should scale it up for display. Noted in Phase 17, still not fixed.
+
+### Summary
+
+| Category | Pass | Partial | Fail | Total |
+|---|---|---|---|---|
+| Normal tests | 38 | 1 | 0 | 39 |
+| Boundary tests | 12 | 2 | 0 | 14 |
+| Erroneous tests | 7 | 0 | 0 | 7 |
+| Stress/edge | 3 | 0 | 0 | 3 |
+| **Total** | **60** | **3** | **0** | **63** |
+
+3 partial passes are documented as known limitations (WebP support, off-centre drawing, RGBA handling). All core functionality works correctly.

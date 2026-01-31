@@ -24,8 +24,10 @@ def preprocess_image(image):
     else:
         img = image
     
-    # Greyscale + resize to 28×28
+    # Greyscale
     img = img.convert('L')
+    
+    # Resize to 28×28
     img = img.resize((28, 28))
     
     # Normalise to 0-1

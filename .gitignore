@@ -4,7 +4,3 @@ venv/
 .venv/
 flagged/
 .DS_Store
-
-# Trained models and database (binary files, regenerated locally)
-artifacts/*.keras
-artifacts/*.db
