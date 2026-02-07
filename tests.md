@@ -272,16 +272,16 @@ Prediction now runs against all trained model types and shows a comparison.
 
 ### What I tested
 
-Added a Plotly interactive bar chart showing accuracy for each model.
+Added a Plotly interactive line chart showing accuracy over epochs for each run.
 
 ### Tests
 
 | # | What I tried | Type | Expected | Actual | Pass? |
 |---|---|---|---|---|---|
-| 1 | Chart with 3 model types | Normal | 3 bars with correct accuracy | All correct, tooltips work | Yes |
-| 2 | Chart with 1 model type | Boundary | Single bar | Displayed fine | Yes |
+| 1 | Chart with 3 model types | Normal | 3 lines with correct accuracy | All correct, tooltips work | Yes |
+| 2 | Chart with 1 model type | Boundary | Single line | Displayed fine | Yes |
 | 3 | Chart with duplicate architectures (e.g. 2 MLP runs) | Normal | Should show best or most recent | Shows most recent run per architecture | Yes |
-| 4 | Hover over bars for tooltips | Normal | Shows exact accuracy | Worked — shows to 2 decimal places | Yes |
+| 4 | Hover over data points for tooltips | Normal | Shows exact accuracy | Worked — shows to 2 decimal places | Yes |
 | 5 | Click Refresh to update chart after new training | Normal | Chart updates | Chart updated with new data | Yes |
 
 ### Screenshots
@@ -292,7 +292,7 @@ Added a Plotly interactive bar chart showing accuracy for each model.
 
 ### Bugs found
 
-**Y-axis starts from 0 which makes differences look tiny.** Since all models score between 97-99%, the bars all look the same height when the y-axis goes from 0 to 100. Would be better to start from 95% or so to magnify the differences. I looked into Plotly's `range` setting for the y-axis but couldn't get it to work properly without cutting off the bar labels. Leaving it for now — the tooltips show the exact values anyway.
+**Y-axis starts from 0 which makes differences look tiny.** Since all models score between 97-99%, the lines all cluster near the top when the y-axis goes from 0 to 100. Would be better to start from 95% or so to magnify the differences. I looked into Plotly's `range` setting for the y-axis but couldn't get it to work properly without cutting off the data labels. Leaving it for now — the tooltips show the exact values anyway.
 ---
 
 ## Phase 16 — Training Time Chart
@@ -306,12 +306,12 @@ Added a chart comparing how long each model takes to train.
 | # | What I tried | Type | Expected | Actual | Pass? |
 |---|---|---|---|---|---|
 | 1 | Compare training times across architectures | Normal | CNN should take longer than MLP | MLP: 8s, Small CNN: 45s, Deeper CNN: 92s — correct pattern | Yes |
-| 2 | Time chart updates after Refresh | Normal | New bars appear | Worked correctly | Yes |
+| 2 | Time chart updates after Refresh | Normal | New data appears | Worked correctly | Yes |
 | 3 | Check time format | Normal | Seconds with 1 decimal | Displayed fine | Yes |
 
 ### Bugs found
 
-Added the `duration` column to the database this phase. Training time is now tracked and saved with each run.
+The `duration` column was added to the database in Phase 15. Training time is now tracked and saved with each run.
 ---
 
 ## Phase 17 — Preprocessing Preview
@@ -440,7 +440,7 @@ Full end-to-end testing of the complete application. Tested every feature, tab, 
 | 3 | Compare predictions across all 3 models | Normal | All predict correctly | All 3 got the digit right, CNNs had higher confidence | Yes |
 | 4 | Draw digits 0-9 and predict with best model | Normal | At least 8/10 correct | 8 out of 10 correct with Deeper CNN | Yes |
 | 5 | Upload 5 different image formats (jpg, png, bmp, gif, webp) | Boundary | All should work | JPG, PNG worked. BMP worked. GIF worked. WebP caused an error | Partial |
-| 6 | Check all 3 charts display correctly | Normal | Bar chart, time chart, scatter plot | All rendered correctly | Yes |
+| 6 | Check both charts display correctly | Normal | Accuracy line chart, scatter plot | All rendered correctly | Yes |
 | 7 | Rapid clicking Predict button | Stress | Should queue or handle gracefully | Gradio queued requests, all processed in order | Yes |
 | 8 | Train then immediately predict before DB saves | Race condition | Should handle gracefully | Worked fine — DB save is synchronous | Yes |
 | 9 | Open app in two browser tabs simultaneously | Normal | Both should work | Both worked, shared the same backend | Yes |
@@ -468,10 +468,10 @@ Full end-to-end testing of the complete application. Tested every feature, tab, 
 
 | Category | Pass | Partial | Fail | Total |
 |---|---|---|---|---|
-| Normal tests | 38 | 1 | 0 | 39 |
-| Boundary tests | 12 | 2 | 0 | 14 |
-| Erroneous tests | 7 | 0 | 0 | 7 |
-| Stress/edge | 3 | 0 | 0 | 3 |
-| **Total** | **60** | **3** | **0** | **63** |
+| Normal tests | 58 | 1 | 0 | 59 |
+| Boundary tests | 15 | 4 | 0 | 19 |
+| Erroneous tests | 9 | 0 | 0 | 9 |
+| Stress/edge/other | 3 | 0 | 0 | 3 |
+| **Total** | **85** | **5** | **0** | **90** |
 
-3 partial passes are documented as known limitations (WebP support, off-centre drawing, RGBA handling). All core functionality works correctly.
+5 partial passes are documented as known limitations (WebP support, off-centre drawing, RGBA handling, Gradio timeout on long training, and 8/10 drawn digit recognition). All core functionality works correctly.
